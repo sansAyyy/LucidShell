@@ -13,7 +13,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  NODE_VERSION: '20'
+  NODE_VERSION: '24'
 
 jobs:
   # 1. 代码风格与类型检查阶段 (快速失败)
