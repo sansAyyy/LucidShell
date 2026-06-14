@@ -110,6 +110,11 @@ function openCreateConnection() {
   connectionSidebar.value?.openCreateConnection();
 }
 
+function openCreateConnectionFromSelectServer() {
+  layout.closeServerSelectDialog();
+  openCreateConnection();
+}
+
 function requestToggleSftpFollowCwd(tabId: string) {
   const tab = layout.tabs.find((item) => item.id === tabId);
 
@@ -204,6 +209,7 @@ function openSettingsFromFollowConfirm() {
       :open="layout.serverSelectDialogOpen"
       :servers="serverStore.servers"
       @cancel="layout.closeServerSelectDialog"
+      @create-connection="openCreateConnectionFromSelectServer"
       @select="layout.selectServerForNewTab"
     />
     <AppSettingsDialog

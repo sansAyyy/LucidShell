@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { Search, X } from "@lucide/vue";
+import { Plus, Search, X } from "@lucide/vue";
 import type { ServerConnection } from "../../../entities/server/model/types";
 
 const props = defineProps<{
@@ -10,6 +10,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   cancel: [];
+  createConnection: [];
   select: [server: ServerConnection];
 }>();
 
@@ -46,9 +47,15 @@ watch(
             <h2>选择服务器</h2>
             <p>为新的 Terminal Tab 选择一个连接</p>
           </div>
-          <button title="关闭" type="button" @click="emit('cancel')">
-            <X :size="18" />
-          </button>
+          <div class="dialog__actions">
+            <button class="dialog__add" type="button" @click="emit('createConnection')">
+              <Plus :size="16" />
+              新增连接
+            </button>
+            <button class="dialog__close" title="关闭" type="button" @click="emit('cancel')">
+              <X :size="18" />
+            </button>
+          </div>
         </header>
 
         <label class="dialog__search">
@@ -123,19 +130,44 @@ watch(
   font-size: 12px;
 }
 
-.dialog__header button {
+.dialog__actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.dialog__add,
+.dialog__close {
   display: grid;
-  width: 30px;
   height: 30px;
   flex: 0 0 auto;
   place-items: center;
   border-radius: 6px;
-  color: var(--text-muted);
-  background: transparent;
   cursor: pointer;
 }
 
-.dialog__header button:hover {
+.dialog__add {
+  grid-template-columns: 16px auto;
+  gap: 6px;
+  padding: 0 10px;
+  color: #ffffff;
+  background: var(--accent);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.dialog__add:hover {
+  background: var(--accent-strong);
+}
+
+.dialog__close {
+  width: 30px;
+  color: var(--text-muted);
+  background: transparent;
+}
+
+.dialog__close:hover {
   color: var(--text-strong);
   background: var(--surface-hover);
 }
