@@ -20,6 +20,7 @@ export type SftpTransferItem = {
 export type SftpPaneState = {
   currentPath: string;
   loading: boolean;
+  loadingAction?: "open" | "refresh" | "delete";
   loadingPath?: string;
   selectedEntryPath?: string;
   selectedCount: number;

@@ -197,6 +197,20 @@ function hasDraggedFiles(event: DragEvent) {
   return Array.from(event.dataTransfer?.types ?? []).includes("Files");
 }
 
+function loadingMessage(sftp: SftpPaneState) {
+  const path = sftp.loadingPath ?? sftp.currentPath;
+
+  if (sftp.loadingAction === "delete") {
+    return `正在删除 ${path}`;
+  }
+
+  if (sftp.loadingAction === "refresh") {
+    return `正在刷新 ${path}`;
+  }
+
+  return `正在打开 ${path}`;
+}
+
 </script>
 
 <template>
@@ -369,7 +383,7 @@ function hasDraggedFiles(event: DragEvent) {
 
       <div v-if="sftp.loading" class="file-table__loading" aria-live="polite">
         <span class="file-table__spinner" />
-        <span>正在打开 {{ sftp.loadingPath ?? sftp.currentPath }}</span>
+        <span>{{ loadingMessage(sftp) }}</span>
       </div>
     </div>
 

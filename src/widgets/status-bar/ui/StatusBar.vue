@@ -15,7 +15,7 @@ function percent(value?: number) {
 
 <template>
   <footer class="statusbar">
-    <span>{{ server?.name ?? "未选择连接" }}</span>
+    <span>{{ server ? server.name : "未连接" }}</span>
     <span v-if="server">{{ server.user }}@{{ server.host }}</span>
     <span v-if="server">{{ server.status }}</span>
     <span v-if="server?.latencyMs">{{ server.latencyMs }}ms</span>

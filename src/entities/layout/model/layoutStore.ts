@@ -119,10 +119,10 @@ export const useLayoutStore = defineStore("layout", () => {
     const tab = activeTab.value;
 
     if (!tab?.serverProfileId) {
-      return useServerStore().activeServer;
+      return undefined;
     }
 
-    return useServerStore().servers.find((server) => server.id === tab.serverProfileId) ?? useServerStore().activeServer;
+    return useServerStore().servers.find((server) => server.id === tab.serverProfileId);
   });
 
   const isActiveSftpCollapsed = computed(() => {
@@ -458,6 +458,7 @@ export const useLayoutStore = defineStore("layout", () => {
       currentPath: ".",
       entries: [],
       loading: false,
+      loadingAction: undefined,
       loadingPath: undefined,
       selectedEntryPath: undefined,
       selectedCount: 0,
@@ -1142,7 +1143,11 @@ export const useLayoutStore = defineStore("layout", () => {
     terminalWriteQueues.value = rest;
   }
 
-  async function refreshSftpForTab(tabId: string, path?: string) {
+  async function refreshSftpForTab(
+    tabId: string,
+    path?: string,
+    options: { loadingAction?: "open" | "refresh" | "delete"; loadingPath?: string } = {},
+  ) {
     const tab = tabs.value.find((item) => item.id === tabId);
 
     if (!tab?.serverSessionId || !isTauri()) {
@@ -1158,7 +1163,8 @@ export const useLayoutStore = defineStore("layout", () => {
     );
 
     tab.sftp.loading = true;
-    tab.sftp.loadingPath = targetPath;
+    tab.sftp.loadingAction = options.loadingAction ?? (path ? "open" : "refresh");
+    tab.sftp.loadingPath = options.loadingPath ?? targetPath;
     tab.sftp.transferSummary = hasActiveTransfer ? previousSftp.transferSummary : "loading";
 
     try {
@@ -1171,6 +1177,7 @@ export const useLayoutStore = defineStore("layout", () => {
         currentPath: directory.currentPath,
         entries: directory.entries,
         loading: false,
+        loadingAction: undefined,
         loadingPath: undefined,
         selectedEntryPath: undefined,
         selectedCount: 0,
@@ -1193,6 +1200,7 @@ export const useLayoutStore = defineStore("layout", () => {
         path: targetPath,
       });
       tab.sftp.loading = false;
+      tab.sftp.loadingAction = undefined;
       tab.sftp.loadingPath = undefined;
       tab.sftp.transferSummary = "error";
       tab.status = "warning";
@@ -1313,7 +1321,10 @@ export const useLayoutStore = defineStore("layout", () => {
         path: entry.path,
         isDirectory: entry.kind === "directory",
       });
-      await refreshSftpForTab(tab.id, tab.sftp.currentPath);
+      await refreshSftpForTab(tab.id, tab.sftp.currentPath, {
+        loadingAction: "delete",
+        loadingPath: entry.path,
+      });
       notification.showToast("远端项目已删除。", "success");
     } catch (error) {
       recordTabDiagnostic("sftp", tab, "SFTP 删除失败", {
@@ -2174,6 +2185,7 @@ export const useLayoutStore = defineStore("layout", () => {
       sftp: {
         currentPath: ".",
         loading: false,
+        loadingAction: undefined,
         selectedCount: 0,
         transferSummary: "idle",
         transferQueue: [],
