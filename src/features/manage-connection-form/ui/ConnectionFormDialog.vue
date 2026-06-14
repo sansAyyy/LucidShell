@@ -86,10 +86,6 @@ const errors = computed(() => {
     nextErrors.name = "连接名称已存在";
   }
 
-  if (!form.groupId) {
-    nextErrors.groupId = "请选择分组";
-  }
-
   if (!trimmedHost.value) {
     nextErrors.host = "请输入主机地址";
   } else if (/\s/.test(trimmedHost.value)) {
@@ -201,6 +197,7 @@ function save() {
               @blur="touchField('groupId')"
               @change="touchField('groupId')"
             >
+              <option value="">未分组</option>
               <option v-for="group in groups" :key="group.id" :value="group.id">
                 {{ group.name }}
               </option>

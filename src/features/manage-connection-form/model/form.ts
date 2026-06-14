@@ -1,6 +1,6 @@
 import type { ServerConnection, ServerConnectionForm } from "../../../entities/server/model/types";
 
-export function createEmptyConnectionForm(groupId: string): ServerConnectionForm {
+export function createEmptyConnectionForm(groupId = ""): ServerConnectionForm {
   return {
     name: "",
     groupId,

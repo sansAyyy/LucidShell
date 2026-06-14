@@ -48,7 +48,7 @@ const importFileInput = ref<HTMLInputElement>();
 const groupDialogOpen = ref(false);
 const formDialogOpen = ref(false);
 const formMode = ref<"create" | "edit">("create");
-const connectionForm = ref<ServerConnectionForm>(createEmptyConnectionForm(serverStore.groups[0]?.id ?? ""));
+const connectionForm = ref<ServerConnectionForm>(createEmptyConnectionForm());
 const contextMenu = ref<{
   open: boolean;
   server?: ServerConnection;
@@ -74,6 +74,7 @@ const visibleServers = computed(() => {
 });
 
 const favoriteServers = computed(() => visibleServers.value.filter((server) => server.favorite));
+const ungroupedServers = computed(() => visibleServers.value.filter((server) => !server.groupId && !server.favorite));
 const existingConnectionNames = computed(() =>
   serverStore.servers
     .filter((server) => server.id !== connectionForm.value.id)
@@ -100,7 +101,7 @@ function serversByGroup(groupId: string) {
 
 function openCreateConnection() {
   formMode.value = "create";
-  connectionForm.value = createEmptyConnectionForm(serverStore.groups[0]?.id ?? "");
+  connectionForm.value = createEmptyConnectionForm();
   formDialogOpen.value = true;
 }
 
@@ -446,6 +447,18 @@ async function importConnectionsFromDrop(event: DragEvent) {
           <h2>Favorites</h2>
           <ServerListItem
             v-for="server in favoriteServers"
+            :key="server.id"
+            :active="server.id === activeServerId"
+            :server="server"
+            @context="openContextMenu"
+            @select="selectServer"
+          />
+        </section>
+
+        <section v-if="ungroupedServers.length" class="server-group">
+          <h2>未分组</h2>
+          <ServerListItem
+            v-for="server in ungroupedServers"
             :key="server.id"
             :active="server.id === activeServerId"
             :server="server"

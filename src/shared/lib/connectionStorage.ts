@@ -59,7 +59,7 @@ export function createDefaultConnectionSnapshot(): ConnectionStorageSnapshot {
   return {
     version: CURRENT_CONNECTION_SNAPSHOT_VERSION,
     activeServerId: "",
-    groups: [{ id: DEFAULT_GROUP_ID, name: "Default" }],
+    groups: [],
     servers: [],
   };
 }
@@ -86,10 +86,6 @@ function normalizeGroups(value: unknown): ConnectionGroup[] {
     groups.push({ id, name });
   });
 
-  if (!groups.length) {
-    groups.push({ id: DEFAULT_GROUP_ID, name: "Default" });
-  }
-
   return groups;
 }
 
@@ -98,7 +94,6 @@ function normalizeServers(value: unknown, groups: ConnectionGroup[]): ServerConn
   const groupIds = new Set(groups.map((group) => group.id));
   const seenIds = new Set<string>();
   const seenNames = new Set<string>();
-  const defaultGroupId = groups[0]?.id ?? DEFAULT_GROUP_ID;
   const servers: ServerConnection[] = [];
 
   rawServers.forEach((rawServer, index) => {
@@ -136,7 +131,7 @@ function normalizeServers(value: unknown, groups: ConnectionGroup[]): ServerConn
         : undefined;
     const privateKeyPath =
       authType === "privateKey" ? asString(rawServer.privateKeyPath).trim() || undefined : undefined;
-    const rawGroupId = asString(rawServer.groupId, defaultGroupId).trim();
+    const rawGroupId = asString(rawServer.groupId).trim();
 
     seenIds.add(id);
     seenNames.add(name.toLowerCase());
@@ -144,7 +139,7 @@ function normalizeServers(value: unknown, groups: ConnectionGroup[]): ServerConn
     servers.push({
       id,
       name,
-      groupId: groupIds.has(rawGroupId) ? rawGroupId : defaultGroupId,
+      groupId: groupIds.has(rawGroupId) ? rawGroupId : "",
       host,
       port: asPort(rawServer.port),
       user,
@@ -177,8 +172,19 @@ export function migrateConnectionSnapshot(value: unknown): ConnectionStorageSnap
     return undefined;
   }
 
-  const groups = normalizeGroups(value.groups);
-  const servers = normalizeServers(value.servers, groups);
+  let groups = normalizeGroups(value.groups);
+  let servers = normalizeServers(value.servers, groups);
+
+  if (
+    groups.length === 1 &&
+    groups[0].id === DEFAULT_GROUP_ID &&
+    groups[0].name === "Default"
+  ) {
+    groups = [];
+    servers = servers.map((server) =>
+      server.groupId === DEFAULT_GROUP_ID ? { ...server, groupId: "" } : server,
+    );
+  }
 
   const rawActiveServerId = asString(value.activeServerId);
   const activeServerId = servers.some((server) => server.id === rawActiveServerId)

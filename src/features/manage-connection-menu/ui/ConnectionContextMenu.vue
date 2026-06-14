@@ -114,6 +114,13 @@ function updateSubmenuPosition() {
             :style="{ top: `${submenuTop}px` }"
           >
             <button
+              type="button"
+              :disabled="!server.groupId"
+              @click="emit('move', server.id, '')"
+            >
+              未分组
+            </button>
+            <button
               v-for="group in groups"
               :key="group.id"
               type="button"
