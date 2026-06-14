@@ -9,6 +9,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
   build-release:
     name: Build ${{ matrix.name }}
@@ -78,3 +82,5 @@ jobs:
           releaseBody: "See the attached installers and archives for this release."
           releaseDraft: true
           prerelease: false
+          includeUpdaterJson: false
+          assetNamePattern: "[name]_[version]_[platform]_[arch]_[bundle][setup][ext]"
