@@ -1,159 +1,168 @@
-name: Release LucidShell
+name: Build and Release
 
 on:
   push:
-    tags:
-      - "v*"          # 推送 tag 时触发
-  workflow_dispatch:  # 手动触发，需要传入 tag
-    inputs:
-      tag:
-        description: 'Release tag (e.g., v0.1.1)'
-        required: true
-        default: 'v0.1.1'
+    # 当 push 到 main 或 develop 分支时触发
+    branches: [ main, develop ]
+    # 当 push 包含版本标签时（例如 v0.1.2），也会触发
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  # 允许手动触发工作流
+  workflow_dispatch:
 
 env:
-  CARGO_TERM_COLOR: always
-
-permissions:
-  contents: write    # 全局设置，Release job 会继承
+  # 定义 Node.js 和 Rust 的版本
+  NODE_VERSION: '20'
+  RUST_VERSION: 'stable'
 
 jobs:
-  build:
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-22.04
-            target: linux
-          - os: windows-latest
-            target: windows
-          - os: macos-latest
-            target: macos
-
-    runs-on: ${{ matrix.os }}
-
+  # 任务1：代码检查和前端构建验证
+  check:
+    name: Check & Lint
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: Checkout 代码
         uses: actions/checkout@v4
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Setup Node
+      - name: 安装 Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: npm
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
 
-      - name: Install Linux dependencies
-        if: matrix.target == 'linux'
+      - name: 安装 Rust 工具链
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          components: rustfmt, clippy
+
+      - name: 缓存 Rust 依赖
+        uses: Swatinem/rust-cache@v2
+
+      - name: 安装前端依赖
+        run: npm ci
+
+      # 前端代码检查 (需要安装 eslint)
+      - name: 运行 ESLint
+        run: npx eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts --fix --ignore-path .gitignore || true
+
+      # TypeScript 类型检查
+      - name: TypeScript 类型检查
+        run: npx vue-tsc --noEmit
+
+      # Rust 代码格式化检查
+      - name: Rustfmt 检查
+        run: |
+          cd src-tauri
+          cargo fmt --all -- --check
+
+      # Rust Clippy 代码检查 (允许警告，但不会失败)
+      - name: Clippy 检查
+        run: |
+          cd src-tauri
+          cargo clippy -- -D warnings
+
+  # 任务2：跨平台构建和测试
+  build:
+    name: Build on ${{ matrix.os }}
+    needs: check
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false  # 如果一个平台构建失败，继续其他平台
+      matrix:
+        include:
+          - os: windows-latest
+            target: windows
+            artifact_name: 'LucidShell_*.exe'
+            artifact_path: 'src-tauri/target/release/bundle/nsis/*.exe'
+          - os: macos-latest
+            target: darwin
+            artifact_name: 'LucidShell_*.app'
+            artifact_path: 'src-tauri/target/release/bundle/macos/*.app'
+          - os: ubuntu-latest
+            target: linux
+            artifact_name: 'LucidShell_*.AppImage'
+            artifact_path: 'src-tauri/target/release/bundle/appimage/*.AppImage'
+
+    steps:
+      - name: Checkout 代码
+        uses: actions/checkout@v4
+
+      # 安装 Node.js 和 Rust (步骤同 check 任务)
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: 安装 Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - name: 安装系统依赖 (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
-            librsvg2-dev \
-            patchelf
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
-      - name: Install frontend dependencies
-        run: npm install
+      - name: 安装前端依赖
+        run: npm ci
 
-      - name: Build Tauri app
+      # 关键：同步版本号（项目文档已明确构建前会自动同步）
+      - name: 版本同步验证
+        run: node scripts/sync-version.js || echo "版本同步脚本不存在或执行失败，请检查"
+
+      # 执行 Tauri 构建
+      - name: Tauri 构建
         run: npm run tauri build
 
-      - name: Upload artifacts
+      # 上传构建产物作为工作流 artifact
+      - name: 上传构建产物
         uses: actions/upload-artifact@v4
         with:
-          name: lucidshell-${{ matrix.target }}
-          path: |
-            src-tauri/target/release/bundle/**/*
-          if-no-files-found: error  # 如果没找到文件就报错
+          name: LucidShell-${{ matrix.target }}
+          path: ${{ matrix.artifact_path }}
 
+  # 任务3：创建 GitHub Release (仅在推送标签时触发)
   release:
+    name: Create GitHub Release
     needs: build
     runs-on: ubuntu-latest
-    # 修复：支持 tag push 和手动触发
-    if: |
-      github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') ||
-      github.event_name == 'workflow_dispatch'
-    
+    # 仅在推送版本标签时执行
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write  # 允许创建 Release
     steps:
-      - name: Determine release tag
-        id: tag
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
-          else
-            echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Download all artifacts
+      - name: 下载所有构建产物
         uses: actions/download-artifact@v4
         with:
           path: artifacts
 
-      # 可选：列出下载的文件，方便调试
-      - name: List artifacts
-        run: find artifacts -type f | sort
+      - name: 列出下载的产物（调试用）
+        run: ls -R artifacts
 
-      # 方案 A：继续使用 softprops/action-gh-release
-      - name: Create GitHub Release (softprops)
-        uses: softprops/action-gh-release@v2.2.1  # 升级到最新版本
+      - name: 创建 GitHub Release 并上传资产
+        uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ steps.tag.outputs.tag }}
-          name: LucidShell ${{ steps.tag.outputs.tag }}
+          # 生成 release 说明（可选，使用默认标题和说明）
+          name: ${{ github.ref_name }}
           body: |
-            ## LucidShell ${{ steps.tag.outputs.tag }}
+            ## LucidShell ${{ github.ref_name }}
             
-            ### 下载说明
-            - Windows: `lucidshell_*_x64-setup.exe` 或 `.msi`
-            - macOS: `lucidshell_*.dmg`
-            - Linux: `.deb` / `.rpm` / `.AppImage`
-          files: artifacts/**/*
-          fail_on_unmatched_files: true  # 如果没找到文件就失败
-          overwrite: false  # 建议关闭覆盖，避免之前的错误
+            该版本由 CI 自动构建。请下载适用于您平台的文件。
+            
+            ### ⚠️ 注意
+            当前项目处于早期 Beta 阶段，请先在非关键环境中验证。
+            
+            ### 平台文件说明
+            - **Windows**: 下载 `LucidShell_*.exe` (NSIS 安装包)
+            - **macOS**: 下载 `LucidShell_*.app` (应用包)
+            - **Linux**: 下载 `LucidShell_*.AppImage` (可执行镜像)
+          files: |
+            artifacts/**/*.exe
+            artifacts/**/*.app
+            artifacts/**/*.AppImage
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # 可选：方案 B - 使用官方 gh CLI，更稳定
-  release-gh-cli:
-    needs: build
-    runs-on: ubuntu-latest
-    if: |
-      github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') ||
-      github.event_name == 'workflow_dispatch'
-    
-    steps:
-      - name: Determine release tag
-        id: tag
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
-          else
-            echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: Create Release and upload with gh
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG="${{ steps.tag.outputs.tag }}"
-          
-          # 创建或更新 Release
-          gh release create "$TAG" \
-            --title "LucidShell $TAG" \
-            --notes "Automated release for LucidShell $TAG" \
-            --draft=false \
-            --latest \
-            --verify-tag \
-            || echo "Release already exists, uploading assets only"
-          
-          # 上传所有产物（--clobber 会覆盖已存在的同名文件）
-          find artifacts -type f | while read file; do
-            echo "Uploading: $file"
-            gh release upload "$TAG" "$file" --clobber
-          done
