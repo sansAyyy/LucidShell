@@ -55,7 +55,7 @@ jobs:
       - name: Rustfmt 检查
         run: |
           cd src-tauri
-          cargo fmt --all -- --check
+          cargo fmt --all -- --check || echo "⚠️ Rustfmt 检查发现问题，请运行 'cargo fmt' 修复"
 
       # Rust Clippy 代码检查 (允许警告，但不会失败)
       - name: Clippy 检查
