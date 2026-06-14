@@ -1,5 +1,4 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { mockConnectionGroups, mockServers } from "../config/mockData";
 import type {
   ConnectionGroup,
   ConnectionStorageSnapshot,
@@ -56,24 +55,12 @@ function createId(prefix: string, index: number) {
   return `${prefix}-${index + 1}`;
 }
 
-function cloneGroups(groups: ConnectionGroup[]) {
-  return groups.map((group) => ({ ...group }));
-}
-
-function cloneServers(servers: ServerConnection[]) {
-  return servers.map((server) => ({
-    ...server,
-    lastError: undefined,
-    status: persistedStatus(server.status),
-  }));
-}
-
 export function createDefaultConnectionSnapshot(): ConnectionStorageSnapshot {
   return {
     version: CURRENT_CONNECTION_SNAPSHOT_VERSION,
-    activeServerId: mockServers[0]?.id ?? "",
-    groups: cloneGroups(mockConnectionGroups),
-    servers: cloneServers(mockServers),
+    activeServerId: "",
+    groups: [{ id: DEFAULT_GROUP_ID, name: "Default" }],
+    servers: [],
   };
 }
 
@@ -192,10 +179,6 @@ export function migrateConnectionSnapshot(value: unknown): ConnectionStorageSnap
 
   const groups = normalizeGroups(value.groups);
   const servers = normalizeServers(value.servers, groups);
-
-  if (!servers.length) {
-    return undefined;
-  }
 
   const rawActiveServerId = asString(value.activeServerId);
   const activeServerId = servers.some((server) => server.id === rawActiveServerId)
