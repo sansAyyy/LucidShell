@@ -4,7 +4,7 @@ import type { TerminalTab } from "../../../entities/terminal/model/types";
 
 defineProps<{
   monitor: MonitorState;
-  server: ServerConnection;
+  server?: ServerConnection;
   tab?: TerminalTab;
 }>();
 
@@ -15,10 +15,10 @@ function percent(value?: number) {
 
 <template>
   <footer class="statusbar">
-    <span>{{ server.name }}</span>
-    <span>{{ server.user }}@{{ server.host }}</span>
-    <span>{{ server.status }}</span>
-    <span v-if="server.latencyMs">{{ server.latencyMs }}ms</span>
+    <span>{{ server?.name ?? "未选择连接" }}</span>
+    <span v-if="server">{{ server.user }}@{{ server.host }}</span>
+    <span v-if="server">{{ server.status }}</span>
+    <span v-if="server?.latencyMs">{{ server.latencyMs }}ms</span>
     <span>CPU {{ percent(monitor.cpu) }}</span>
     <span>MEM {{ percent(monitor.memory) }}</span>
     <span>DISK {{ percent(monitor.disk) }}</span>
