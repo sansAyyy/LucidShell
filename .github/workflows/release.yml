@@ -3,15 +3,20 @@ name: Release LucidShell
 on:
   push:
     tags:
-      - "v*"
-  workflow_dispatch:
+      - "v*"          # 推送 tag 时触发
+  workflow_dispatch:  # 手动触发，需要传入 tag
+    inputs:
+      tag:
+        description: 'Release tag (e.g., v0.1.1)'
+        required: true
+        default: 'v0.1.1'
 
 env:
   CARGO_TERM_COLOR: always
-  
+
 permissions:
-  contents: write
-  
+  contents: write    # 全局设置，Release job 会继承
+
 jobs:
   build:
     strategy:
@@ -30,18 +35,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Rust
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      # Node.js
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
 
-      # Linux 系统依赖
       - name: Install Linux dependencies
         if: matrix.target == 'linux'
         run: |
@@ -52,39 +54,106 @@ jobs:
             librsvg2-dev \
             patchelf
 
-      # 前端依赖
       - name: Install frontend dependencies
         run: npm install
 
-      # Tauri 构建
       - name: Build Tauri app
         run: npm run tauri build
 
-      # 上传构建产物
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: lucidshell-${{ matrix.target }}
           path: |
             src-tauri/target/release/bundle/**/*
+          if-no-files-found: error  # 如果没找到文件就报错
 
   release:
     needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
-
+    # 修复：支持 tag push 和手动触发
+    if: |
+      github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') ||
+      github.event_name == 'workflow_dispatch'
+    
     steps:
+      - name: Determine release tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          fi
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+      # 可选：列出下载的文件，方便调试
+      - name: List artifacts
+        run: find artifacts -type f | sort
+
+      # 方案 A：继续使用 softprops/action-gh-release
+      - name: Create GitHub Release (softprops)
+        uses: softprops/action-gh-release@v2.2.1  # 升级到最新版本
         with:
-          tag_name: ${{ github.ref_name }}
-          name: LucidShell ${{ github.ref_name }}
-          body: "Automated release"
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: LucidShell ${{ steps.tag.outputs.tag }}
+          body: |
+            ## LucidShell ${{ steps.tag.outputs.tag }}
+            
+            ### 下载说明
+            - Windows: `lucidshell_*_x64-setup.exe` 或 `.msi`
+            - macOS: `lucidshell_*.dmg`
+            - Linux: `.deb` / `.rpm` / `.AppImage`
           files: artifacts/**/*
+          fail_on_unmatched_files: true  # 如果没找到文件就失败
+          overwrite: false  # 建议关闭覆盖，避免之前的错误
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # 可选：方案 B - 使用官方 gh CLI，更稳定
+  release-gh-cli:
+    needs: build
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') ||
+      github.event_name == 'workflow_dispatch'
+    
+    steps:
+      - name: Determine release tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release and upload with gh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          
+          # 创建或更新 Release
+          gh release create "$TAG" \
+            --title "LucidShell $TAG" \
+            --notes "Automated release for LucidShell $TAG" \
+            --draft=false \
+            --latest \
+            --verify-tag \
+            || echo "Release already exists, uploading assets only"
+          
+          # 上传所有产物（--clobber 会覆盖已存在的同名文件）
+          find artifacts -type f | while read file; do
+            echo "Uploading: $file"
+            gh release upload "$TAG" "$file" --clobber
+          done
