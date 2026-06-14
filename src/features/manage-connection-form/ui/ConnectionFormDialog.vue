@@ -20,6 +20,7 @@ const form = reactive<ServerConnectionForm>({ ...props.modelValue });
 const plainPasswordConfirmed = ref(false);
 const submitted = ref(false);
 const passwordVisible = ref(false);
+const openSelect = ref<keyof Pick<ServerConnectionForm, "groupId" | "authType" | "credentialStorage">>();
 const touched = reactive<Partial<Record<keyof ServerConnectionForm, boolean>>>({});
 
 function assignForm(nextForm: ServerConnectionForm) {
@@ -127,11 +128,32 @@ const passwordPlaceholder = computed(() =>
     ? "••••••••"
     : "输入密码",
 );
+const portValue = computed(() => String(form.port || ""));
+const groupOptions = computed(() => [
+  { label: "未分组", value: "" },
+  ...props.groups.map((group) => ({ label: group.name, value: group.id })),
+]);
+const selectedGroupLabel = computed(
+  () => groupOptions.value.find((option) => option.value === form.groupId)?.label ?? "未分组",
+);
+const selectedAuthTypeLabel = computed(() => form.authType === "privateKey" ? "私钥" : "密码");
+const selectedCredentialStorageLabel = computed(() => {
+  if (form.credentialStorage === "plain") {
+    return "保存明文密码";
+  }
+
+  if (form.credentialStorage === "keychain") {
+    return "保存到系统凭据";
+  }
+
+  return "不保存凭据";
+});
 
 function resetInteractionState() {
   submitted.value = false;
   plainPasswordConfirmed.value = false;
   passwordVisible.value = false;
+  openSelect.value = undefined;
 
   Object.keys(touched).forEach((field) => {
     delete touched[field as keyof ServerConnectionForm];
@@ -148,6 +170,50 @@ function visibleError(field: keyof ServerConnectionForm) {
   }
 
   return errors.value[field];
+}
+
+function updatePort(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const digits = input.value.replace(/\D/g, "").slice(0, 5);
+
+  input.value = digits;
+  form.port = digits ? Number(digits) : 0;
+}
+
+function normalizePort() {
+  touchField("port");
+
+  if (!form.port) {
+    return;
+  }
+
+  form.port = Math.min(Math.max(form.port, 1), 65535);
+}
+
+function toggleSelect(field: typeof openSelect.value) {
+  openSelect.value = openSelect.value === field ? undefined : field;
+}
+
+function closeSelect() {
+  openSelect.value = undefined;
+}
+
+function selectGroup(groupId: string) {
+  form.groupId = groupId;
+  touchField("groupId");
+  closeSelect();
+}
+
+function selectAuthType(authType: ServerConnectionForm["authType"]) {
+  form.authType = authType;
+  touchField("authType");
+  closeSelect();
+}
+
+function selectCredentialStorage(credentialStorage: ServerConnectionForm["credentialStorage"]) {
+  form.credentialStorage = credentialStorage;
+  touchField("credentialStorage");
+  closeSelect();
 }
 
 function save() {
@@ -169,7 +235,7 @@ function save() {
 <template>
   <Teleport to="body">
     <div v-if="open" class="dialog-backdrop" @click.self="emit('cancel')">
-      <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="connection-form-title">
+      <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="connection-form-title" @click="closeSelect">
         <header class="dialog__header">
           <div>
             <h2 id="connection-form-title">{{ mode === "create" ? "新增连接" : "编辑连接" }}</h2>
@@ -178,7 +244,7 @@ function save() {
         </header>
 
         <div class="form-grid">
-          <label>
+          <label class="form-field">
             连接名称
             <input
               v-model="form.name"
@@ -186,26 +252,42 @@ function save() {
               placeholder="prod-01"
               @blur="touchField('name')"
             />
-            <span v-if="visibleError('name')" class="error-text">{{ visibleError("name") }}</span>
+            <span class="field-feedback">
+              <span v-if="visibleError('name')" class="error-text">{{ visibleError("name") }}</span>
+            </span>
           </label>
 
-          <label>
+          <label class="form-field">
             分组
-            <select
-              v-model="form.groupId"
-              :class="{ 'field-error': visibleError('groupId') }"
-              @blur="touchField('groupId')"
-              @change="touchField('groupId')"
-            >
-              <option value="">未分组</option>
-              <option v-for="group in groups" :key="group.id" :value="group.id">
-                {{ group.name }}
-              </option>
-            </select>
-            <span v-if="visibleError('groupId')" class="error-text">{{ visibleError("groupId") }}</span>
+            <span class="select-field" @click.stop>
+              <button
+                class="select-button"
+                :class="{ 'field-error': visibleError('groupId') }"
+                type="button"
+                @blur="touchField('groupId')"
+                @click="toggleSelect('groupId')"
+              >
+                {{ selectedGroupLabel }}
+              </button>
+              <div v-if="openSelect === 'groupId'" class="select-menu">
+                <button
+                  v-for="option in groupOptions"
+                  :key="option.value || 'ungrouped'"
+                  class="select-option"
+                  :class="{ 'select-option--active': option.value === form.groupId }"
+                  type="button"
+                  @click="selectGroup(option.value)"
+                >
+                  {{ option.label }}
+                </button>
+              </div>
+            </span>
+            <span class="field-feedback">
+              <span v-if="visibleError('groupId')" class="error-text">{{ visibleError("groupId") }}</span>
+            </span>
           </label>
 
-          <label>
+          <label class="form-field">
             主机
             <input
               v-model="form.host"
@@ -213,23 +295,29 @@ function save() {
               placeholder="10.0.0.12"
               @blur="touchField('host')"
             />
-            <span v-if="visibleError('host')" class="error-text">{{ visibleError("host") }}</span>
+            <span class="field-feedback">
+              <span v-if="visibleError('host')" class="error-text">{{ visibleError("host") }}</span>
+            </span>
           </label>
 
-          <label>
+          <label class="form-field">
             端口
             <input
-              v-model.number="form.port"
+              :value="portValue"
               :class="{ 'field-error': visibleError('port') }"
               inputmode="numeric"
+              maxlength="5"
               placeholder="22"
               type="text"
-              @blur="touchField('port')"
+              @blur="normalizePort"
+              @input="updatePort"
             />
-            <span v-if="visibleError('port')" class="error-text">{{ visibleError("port") }}</span>
+            <span class="field-feedback">
+              <span v-if="visibleError('port')" class="error-text">{{ visibleError("port") }}</span>
+            </span>
           </label>
 
-          <label>
+          <label class="form-field">
             用户名
             <input
               v-model="form.user"
@@ -237,18 +325,40 @@ function save() {
               placeholder="root"
               @blur="touchField('user')"
             />
-            <span v-if="visibleError('user')" class="error-text">{{ visibleError("user") }}</span>
+            <span class="field-feedback">
+              <span v-if="visibleError('user')" class="error-text">{{ visibleError("user") }}</span>
+            </span>
           </label>
 
-          <label>
+          <label class="form-field">
             认证方式
-            <select v-model="form.authType" @blur="touchField('authType')" @change="touchField('authType')">
-              <option value="password">密码</option>
-              <option value="privateKey">私钥</option>
-            </select>
+            <span class="select-field">
+              <button class="select-button" type="button" @blur="touchField('authType')" @click.stop="toggleSelect('authType')">
+                {{ selectedAuthTypeLabel }}
+              </button>
+              <div v-if="openSelect === 'authType'" class="select-menu" @click.stop>
+                <button
+                  class="select-option"
+                  :class="{ 'select-option--active': form.authType === 'password' }"
+                  type="button"
+                  @click="selectAuthType('password')"
+                >
+                  密码
+                </button>
+                <button
+                  class="select-option"
+                  :class="{ 'select-option--active': form.authType === 'privateKey' }"
+                  type="button"
+                  @click="selectAuthType('privateKey')"
+                >
+                  私钥
+                </button>
+              </div>
+            </span>
+            <span class="field-feedback"></span>
           </label>
 
-          <label v-if="form.authType === 'password'" class="form-grid__wide">
+          <label v-if="form.authType === 'password'" class="form-field form-grid__wide">
             密码
             <span class="password-field">
               <input
@@ -268,16 +378,18 @@ function save() {
                 <Eye v-else :size="16" />
               </button>
             </span>
-            <span v-if="visibleError('password')" class="error-text">{{ visibleError("password") }}</span>
-            <span
-              v-else-if="mode === 'edit' && form.credentialStorage === 'keychain'"
-              class="field-hint"
-            >
-              留空表示继续使用已保存的系统凭据。
+            <span class="field-feedback">
+              <span v-if="visibleError('password')" class="error-text">{{ visibleError("password") }}</span>
+              <span
+                v-else-if="mode === 'edit' && form.credentialStorage === 'keychain'"
+                class="field-hint"
+              >
+                留空表示继续使用已保存的系统凭据。
+              </span>
             </span>
           </label>
 
-          <label v-else class="form-grid__wide">
+          <label v-else class="form-field form-grid__wide">
             私钥路径
             <input
               v-model="form.privateKeyPath"
@@ -285,20 +397,50 @@ function save() {
               placeholder="~/.ssh/id_ed25519"
               @blur="touchField('privateKeyPath')"
             />
-            <span v-if="visibleError('privateKeyPath')" class="error-text">{{ visibleError("privateKeyPath") }}</span>
+            <span class="field-feedback">
+              <span v-if="visibleError('privateKeyPath')" class="error-text">{{ visibleError("privateKeyPath") }}</span>
+            </span>
           </label>
 
-          <label class="form-grid__wide">
+          <label class="form-field form-grid__wide">
             凭据保存
-            <select
-              v-model="form.credentialStorage"
-              @blur="touchField('credentialStorage')"
-              @change="touchField('credentialStorage')"
-            >
-              <option value="none">不保存凭据</option>
-              <option value="plain">保存明文密码</option>
-              <option value="keychain">保存到系统凭据</option>
-            </select>
+            <span class="select-field">
+              <button
+                class="select-button"
+                type="button"
+                @blur="touchField('credentialStorage')"
+                @click.stop="toggleSelect('credentialStorage')"
+              >
+                {{ selectedCredentialStorageLabel }}
+              </button>
+              <div v-if="openSelect === 'credentialStorage'" class="select-menu select-menu--up" @click.stop>
+                <button
+                  class="select-option"
+                  :class="{ 'select-option--active': form.credentialStorage === 'none' }"
+                  type="button"
+                  @click="selectCredentialStorage('none')"
+                >
+                  不保存凭据
+                </button>
+                <button
+                  class="select-option"
+                  :class="{ 'select-option--active': form.credentialStorage === 'plain' }"
+                  type="button"
+                  @click="selectCredentialStorage('plain')"
+                >
+                  保存明文密码
+                </button>
+                <button
+                  class="select-option"
+                  :class="{ 'select-option--active': form.credentialStorage === 'keychain' }"
+                  type="button"
+                  @click="selectCredentialStorage('keychain')"
+                >
+                  保存到系统凭据
+                </button>
+              </div>
+            </span>
+            <span class="field-feedback"></span>
           </label>
 
           <label class="checkbox-row">
@@ -364,13 +506,15 @@ function save() {
 .form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px;
+  column-gap: 12px;
+  row-gap: 8px;
   padding: 16px 20px;
 }
 
-.form-grid label {
+.form-field {
   display: grid;
-  gap: 6px;
+  grid-template-rows: 15px 34px 14px;
+  gap: 5px;
   color: var(--text-muted);
   font-size: 12px;
 }
@@ -380,7 +524,7 @@ function save() {
 }
 
 .form-grid input,
-.form-grid select {
+.select-button {
   width: 100%;
   height: 34px;
   border: 1px solid var(--field-border);
@@ -388,6 +532,82 @@ function save() {
   padding: 0 10px;
   color: var(--text-main);
   background: var(--field-bg);
+}
+
+.form-grid input::placeholder {
+  color: var(--text-subtle);
+}
+
+.form-grid input:focus,
+.select-button:focus {
+  border-color: var(--accent);
+  outline: 0;
+}
+
+.select-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-right: 34px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.select-field {
+  position: relative;
+  display: block;
+}
+
+.select-field::after {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid var(--text-muted);
+  border-bottom: 2px solid var(--text-muted);
+  content: "";
+  pointer-events: none;
+  transform: translateY(-65%) rotate(45deg);
+}
+
+.select-field:focus-within::after {
+  border-color: var(--accent);
+}
+
+.select-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  left: 0;
+  z-index: 2;
+  display: grid;
+  max-height: 168px;
+  border: 1px solid var(--field-border);
+  border-radius: 6px;
+  overflow: auto;
+  background: var(--surface-4);
+  box-shadow: var(--shadow-strong);
+}
+
+.select-menu--up {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
+
+.select-option {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 10px;
+  color: var(--text-main);
+  background: transparent;
+  cursor: pointer;
+}
+
+.select-option:hover,
+.select-option--active {
+  background: var(--surface-hover);
 }
 
 .field-error {
@@ -425,11 +645,19 @@ function save() {
 .error-text {
   color: var(--danger);
   font-size: 11px;
+  line-height: 14px;
 }
 
 .field-hint {
   color: var(--text-muted);
   font-size: 11px;
+  line-height: 14px;
+}
+
+.field-feedback {
+  display: block;
+  min-height: 14px;
+  overflow: hidden;
 }
 
 .checkbox-row {
