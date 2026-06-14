@@ -1,0 +1,41 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "lucidshell",
+  "version": "0.1.1",
+  "identifier": "app.lucidshell.dev",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "LucidShell",
+        "width": 1200,
+        "height": 780,
+        "center": true,
+        "minWidth": 960,
+        "minHeight": 640,
+        "backgroundColor": "#12151a",
+        "visible": false,
+        "decorations": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons-lucidshell/32x32.png",
+      "icons-lucidshell/128x128.png",
+      "icons-lucidshell/128x128@2x.png",
+      "icons-lucidshell/icon.icns",
+      "icons-lucidshell/icon.ico"
+    ]
+  }
+}

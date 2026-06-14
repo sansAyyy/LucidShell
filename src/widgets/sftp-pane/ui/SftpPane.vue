@@ -1,0 +1,768 @@
+<script setup lang="ts">
+import {
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  Link,
+  Link2Off,
+  ChevronDown,
+  File,
+  Folder,
+  FolderPlus,
+  RefreshCw,
+  X,
+} from "@lucide/vue";
+import { nextTick, ref } from "vue";
+import { SftpEntryContextMenu } from "../../../features/sftp-entry-menu";
+import type { SftpPaneState } from "../../../entities/sftp/model/types";
+
+defineProps<{
+  collapsed: boolean;
+  dragActive: boolean;
+  followTerminalCwd: boolean;
+  followTerminalCwdError?: string;
+  followTerminalCwdStatus: "disabled" | "enabling" | "enabled" | "error";
+  sftp: SftpPaneState;
+}>();
+
+const emit = defineEmits<{
+  "cancel-download": [];
+  "cancel-upload": [];
+  "drag-active": [active: boolean];
+  download: [];
+  "entry-open": [entry: SftpPaneState["entries"][number]];
+  refresh: [];
+  "select-entry": [entry: SftpPaneState["entries"][number]];
+  "go-parent": [];
+  "new-folder": [];
+  "entry-context-delete": [entry: SftpPaneState["entries"][number]];
+  "entry-context-download": [entry: SftpPaneState["entries"][number]];
+  "entry-context-edit": [entry: SftpPaneState["entries"][number]];
+  "entry-context-rename": [entry: SftpPaneState["entries"][number], name: string];
+  "toggle-collapse": [];
+  "toggle-follow-cwd": [];
+  upload: [];
+}>();
+
+const contextMenu = ref<{
+  entry?: SftpPaneState["entries"][number];
+  open: boolean;
+  x: number;
+  y: number;
+}>({
+  open: false,
+  x: 0,
+  y: 0,
+});
+const renameInput = ref<HTMLInputElement>();
+const editingEntryPath = ref("");
+const editingEntryName = ref("");
+
+function openContextMenu(event: MouseEvent, entry: SftpPaneState["entries"][number]) {
+  emit("select-entry", entry);
+  contextMenu.value = {
+    entry,
+    open: true,
+    x: event.clientX,
+    y: event.clientY,
+  };
+}
+
+function closeContextMenu() {
+  contextMenu.value = {
+    open: false,
+    x: 0,
+    y: 0,
+  };
+}
+
+function runContextAction(action: () => void) {
+  closeContextMenu();
+  action();
+}
+
+function deleteEntry(entry: SftpPaneState["entries"][number]) {
+  runContextAction(() => emit("entry-context-delete", entry));
+}
+
+function downloadEntry(entry: SftpPaneState["entries"][number]) {
+  runContextAction(() => emit("entry-context-download", entry));
+}
+
+function editEntry(entry: SftpPaneState["entries"][number]) {
+  runContextAction(() => emit("entry-context-edit", entry));
+}
+
+function renameEntry(entry: SftpPaneState["entries"][number]) {
+  runContextAction(() => beginRenameEntry(entry));
+}
+
+function transferStatusLabel(status: SftpPaneState["transferQueue"][number]["status"]) {
+  return status === "running" ? "传输中" : "等待中";
+}
+
+function cancelTransfer(direction: SftpPaneState["transferQueue"][number]["direction"]) {
+  if (direction === "download") {
+    emit("cancel-download");
+    return;
+  }
+
+  emit("cancel-upload");
+}
+
+function beginRenameEntry(entry: SftpPaneState["entries"][number]) {
+  editingEntryPath.value = entry.path;
+  editingEntryName.value = entry.name;
+
+  void nextTick(() => {
+    renameInput.value?.focus();
+    renameInput.value?.select();
+  });
+}
+
+function commitEntryRename(entry: SftpPaneState["entries"][number]) {
+  if (editingEntryPath.value !== entry.path) {
+    return;
+  }
+
+  const name = editingEntryName.value.trim();
+  editingEntryPath.value = "";
+  editingEntryName.value = "";
+
+  if (name && name !== entry.name) {
+    emit("entry-context-rename", entry, name);
+  }
+}
+
+function cancelEntryRename() {
+  editingEntryPath.value = "";
+  editingEntryName.value = "";
+}
+
+function followCwdTitle(
+  status: "disabled" | "enabling" | "enabled" | "error",
+  error?: string,
+) {
+  if (status === "enabling") {
+    return "正在启用 SFTP 跟随终端目录";
+  }
+
+  if (status === "error") {
+    return error ? `跟随终端目录失败：${error}` : "跟随终端目录失败";
+  }
+
+  return status === "enabled" ? "停止跟随终端目录" : "跟随终端目录";
+}
+
+function handleDragEnter(event: DragEvent) {
+  if (!hasDraggedFiles(event)) {
+    return;
+  }
+
+  event.preventDefault();
+  emit("drag-active", true);
+}
+
+function handleDragLeave(event: DragEvent) {
+  if (event.currentTarget instanceof HTMLElement && event.relatedTarget instanceof Node) {
+    if (event.currentTarget.contains(event.relatedTarget)) {
+      return;
+    }
+  }
+
+  emit("drag-active", false);
+}
+
+function handleDragOver(event: DragEvent) {
+  if (!hasDraggedFiles(event)) {
+    return;
+  }
+
+  event.preventDefault();
+  emit("drag-active", true);
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = "copy";
+  }
+}
+
+function handleDrop(event: DragEvent) {
+  if (!hasDraggedFiles(event)) {
+    return;
+  }
+
+  event.preventDefault();
+  emit("drag-active", false);
+}
+
+function hasDraggedFiles(event: DragEvent) {
+  return Array.from(event.dataTransfer?.types ?? []).includes("Files");
+}
+
+</script>
+
+<template>
+  <section
+    v-if="collapsed"
+    class="sftp-strip"
+    data-sftp-drop-zone="true"
+    @dragenter="handleDragEnter"
+    @dragleave="handleDragLeave"
+    @dragover="handleDragOver"
+    @drop="handleDrop"
+  >
+    <span class="sftp-strip__label">SFTP</span>
+    <span class="sftp-strip__path">{{ sftp.currentPath }}</span>
+    <span class="sftp-strip__meta">{{ sftp.selectedCount }} selected</span>
+    <span class="sftp-strip__meta">{{ sftp.transferSummary }}</span>
+    <button title="展开 SFTP" type="button" @click="emit('toggle-collapse')">
+      <slot name="collapsed-icon" />
+    </button>
+  </section>
+
+  <section
+    v-else
+    class="sftp-pane"
+    :class="{ 'sftp-pane--drag-active': dragActive }"
+    data-sftp-drop-zone="true"
+    @dragenter="handleDragEnter"
+    @dragleave="handleDragLeave"
+    @dragover="handleDragOver"
+    @drop="handleDrop"
+  >
+    <header class="sftp-pane__header">
+      <div class="sftp-pane__path">
+        <span>SFTP</span>
+        <strong>{{ sftp.currentPath }}</strong>
+      </div>
+      <div class="sftp-pane__actions">
+        <button
+          v-if="sftp.activeUploadId"
+          title="取消上传队列"
+          type="button"
+          @click="emit('cancel-upload')"
+        >
+          <X :size="16" />
+        </button>
+        <button v-else title="上传" type="button" @click="emit('upload')">
+          <ArrowUpFromLine :size="16" />
+        </button>
+        <button
+          v-if="sftp.activeDownloadId"
+          title="取消下载"
+          type="button"
+          @click="emit('cancel-download')"
+        >
+          <X :size="16" />
+        </button>
+        <button v-else title="下载选中文件" type="button" @click="emit('download')">
+          <ArrowDownToLine :size="16" />
+        </button>
+        <button title="新建文件夹" type="button" @click="emit('new-folder')">
+          <FolderPlus :size="16" />
+        </button>
+        <button
+          :class="{
+            'sftp-pane__action--active': followTerminalCwdStatus === 'enabled',
+            'sftp-pane__action--busy': followTerminalCwdStatus === 'enabling',
+            'sftp-pane__action--error': followTerminalCwdStatus === 'error'
+          }"
+          :disabled="followTerminalCwdStatus === 'enabling'"
+          :title="followCwdTitle(followTerminalCwdStatus, followTerminalCwdError)"
+          type="button"
+          @click="emit('toggle-follow-cwd')"
+        >
+          <Link v-if="followTerminalCwd" :size="16" />
+          <Link2Off v-else :size="16" />
+        </button>
+        <button :disabled="sftp.loading" title="上级目录" type="button" @click="emit('go-parent')">
+          ..
+        </button>
+        <button :disabled="sftp.loading" title="刷新" type="button" @click="emit('refresh')">
+          <RefreshCw :size="16" />
+        </button>
+        <button title="折叠 SFTP" type="button" @click="emit('toggle-collapse')">
+          <ChevronDown :size="16" />
+        </button>
+      </div>
+    </header>
+
+    <div v-if="sftp.activeDownloadId || sftp.activeUploadId" class="sftp-pane__progress">
+      <span :style="{ width: `${sftp.transferProgress ?? 0}%` }" />
+    </div>
+
+    <div v-if="sftp.transferQueue.length" class="transfer-panel">
+      <div class="transfer-panel__header">
+        <span>传输队列</span>
+        <span>{{ sftp.transferQueue.length }} 项</span>
+      </div>
+      <div class="transfer-panel__list">
+        <div
+          v-for="item in sftp.transferQueue"
+          :key="item.id"
+          class="transfer-item"
+          :class="`transfer-item--${item.status}`"
+        >
+          <span class="transfer-item__icon">
+            <ArrowUpFromLine v-if="item.direction === 'upload'" :size="14" />
+            <ArrowDownToLine v-else :size="14" />
+          </span>
+          <span class="transfer-item__name" :title="item.name">{{ item.name }}</span>
+          <span class="transfer-item__summary">
+            {{ item.summary ?? transferStatusLabel(item.status) }}
+          </span>
+          <span class="transfer-item__progress">
+            <span :style="{ width: `${item.progress ?? 0}%` }" />
+          </span>
+          <button
+            v-if="item.status === 'running'"
+            :title="item.direction === 'download' ? '取消下载' : '取消上传队列'"
+            type="button"
+            @click.stop="cancelTransfer(item.direction)"
+          >
+            <X :size="14" />
+          </button>
+          <span v-else class="transfer-item__placeholder" />
+        </div>
+      </div>
+    </div>
+
+    <div class="file-table" :class="{ 'file-table--loading': sftp.loading }" role="table" aria-label="Remote files">
+      <div class="file-table__row file-table__row--head" role="row">
+        <span>Name</span>
+        <span>Size</span>
+        <span>Modified</span>
+        <span>Mode</span>
+      </div>
+      <button
+        v-for="entry in sftp.entries"
+        :key="entry.id"
+        class="file-table__row"
+        :class="{ 'file-table__row--selected': sftp.selectedEntryPath === entry.path }"
+        type="button"
+        role="row"
+        :disabled="sftp.loading"
+        @click="emit('select-entry', entry)"
+        @dblclick="emit('entry-open', entry)"
+        @contextmenu.prevent="openContextMenu($event, entry)"
+      >
+        <span class="file-table__name">
+          <Folder v-if="entry.kind === 'directory'" :size="16" />
+          <File v-else :size="16" />
+          <input
+            v-if="editingEntryPath === entry.path"
+            ref="renameInput"
+            v-model="editingEntryName"
+            class="file-table__rename-input"
+            @blur="commitEntryRename(entry)"
+            @click.stop
+            @contextmenu.stop
+            @dblclick.stop
+            @keydown.enter.prevent="commitEntryRename(entry)"
+            @keydown.esc.prevent="cancelEntryRename"
+            @mousedown.stop
+          >
+          <template v-else>{{ entry.name }}</template>
+        </span>
+        <span>{{ entry.size }}</span>
+        <span>{{ entry.modified }}</span>
+        <span>{{ entry.mode }}</span>
+      </button>
+
+      <div v-if="sftp.loading" class="file-table__loading" aria-live="polite">
+        <span class="file-table__spinner" />
+        <span>正在打开 {{ sftp.loadingPath ?? sftp.currentPath }}</span>
+      </div>
+    </div>
+
+    <SftpEntryContextMenu
+      :entry="contextMenu.entry"
+      :open="contextMenu.open"
+      :x="contextMenu.x"
+      :y="contextMenu.y"
+      @close="closeContextMenu"
+      @delete="deleteEntry"
+      @download="downloadEntry"
+      @edit="editEntry"
+      @rename="renameEntry"
+    />
+
+    <div v-if="dragActive" class="sftp-pane__drop-overlay">
+      <strong>释放以上传到当前目录</strong>
+      <span>{{ sftp.currentPath }}</span>
+    </div>
+  </section>
+</template>
+
+<style scoped>
+.sftp-pane {
+  position: relative;
+  display: grid;
+  min-height: 0;
+  grid-template-rows: 36px auto auto minmax(0, 1fr);
+  border-top: 1px solid var(--app-border);
+  background: var(--surface-2);
+}
+
+.sftp-pane--drag-active {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.sftp-pane__drop-overlay {
+  position: absolute;
+  inset: 8px;
+  z-index: 5;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 6px;
+  border: 1px dashed var(--accent);
+  border-radius: 7px;
+  color: var(--text-strong);
+  background: color-mix(in srgb, var(--surface-4) 86%, transparent);
+  pointer-events: none;
+}
+
+.sftp-pane__drop-overlay strong {
+  font-size: 14px;
+}
+
+.sftp-pane__drop-overlay span {
+  max-width: min(520px, 86%);
+  overflow: hidden;
+  color: var(--accent);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sftp-pane__progress {
+  height: 3px;
+  overflow: hidden;
+  background: var(--app-border);
+}
+
+.sftp-pane__progress span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent-strong);
+  transition: width 120ms ease;
+}
+
+.sftp-pane__header,
+.sftp-strip {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  border-bottom: 1px solid var(--app-border);
+}
+
+.sftp-pane__header {
+  justify-content: space-between;
+  padding: 0 8px 0 12px;
+}
+
+.sftp-pane__path {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.sftp-pane__path strong {
+  overflow: hidden;
+  color: var(--text-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sftp-pane__actions {
+  display: flex;
+  gap: 4px;
+}
+
+.sftp-pane__actions button,
+.sftp-strip button {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border-radius: 5px;
+  color: var(--text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.sftp-pane__actions button:hover,
+.sftp-strip button:hover {
+  color: var(--text-strong);
+  background: var(--surface-hover);
+}
+
+.sftp-pane__actions button:disabled {
+  color: var(--text-subtle);
+  cursor: default;
+}
+
+.sftp-pane__actions .sftp-pane__action--active {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.sftp-pane__actions .sftp-pane__action--busy {
+  color: var(--warning);
+  background: #2b2618;
+  cursor: wait;
+}
+
+.sftp-pane__actions .sftp-pane__action--error {
+  color: var(--danger);
+  background: #342024;
+}
+
+.transfer-panel {
+  min-height: 0;
+  max-height: 138px;
+  border-bottom: 1px solid var(--app-border);
+  background: var(--surface-3);
+}
+
+.transfer-panel__header {
+  display: flex;
+  height: 28px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.transfer-panel__list {
+  max-height: 110px;
+  overflow: auto;
+  padding: 0 8px 8px;
+}
+
+.transfer-item {
+  display: grid;
+  grid-template-columns: 22px minmax(120px, 1fr) minmax(70px, auto) 92px 24px;
+  min-height: 30px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px;
+  border-radius: 5px;
+  color: var(--text-main);
+  font-size: 12px;
+}
+
+.transfer-item:hover {
+  background: var(--surface-hover);
+}
+
+.transfer-item--queued {
+  color: var(--text-muted);
+}
+
+.transfer-item__icon {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  color: var(--accent);
+}
+
+.transfer-item__name,
+.transfer-item__summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transfer-item__summary {
+  color: var(--text-muted);
+}
+
+.transfer-item__progress {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--app-border);
+}
+
+.transfer-item__progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent-strong);
+  transition: width 120ms ease;
+}
+
+.transfer-item--queued .transfer-item__progress span {
+  background: transparent;
+}
+
+.transfer-item button {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 5px;
+  color: var(--text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.transfer-item button:hover {
+  color: var(--text-strong);
+  background: var(--surface-hover);
+}
+
+.transfer-item__placeholder {
+  width: 22px;
+  height: 22px;
+}
+
+.file-table {
+  position: relative;
+  min-height: 0;
+  overflow: auto;
+  padding: 6px 8px 12px;
+}
+
+.file-table--loading .file-table__row:not(.file-table__row--head) {
+  color: var(--text-muted);
+}
+
+.file-table__row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 110px 170px 100px;
+  width: 100%;
+  min-height: 30px;
+  align-items: center;
+  gap: 12px;
+  padding: 0 8px;
+  border-radius: 6px;
+  color: var(--text-main);
+  background: transparent;
+  text-align: left;
+}
+
+.file-table__row:not(.file-table__row--head) {
+  cursor: pointer;
+}
+
+.file-table__row:disabled {
+  cursor: wait;
+}
+
+.file-table__row:not(.file-table__row--head):hover {
+  background: var(--surface-hover);
+}
+
+.file-table__row--selected,
+.file-table__row--selected:hover {
+  background: var(--surface-active);
+}
+
+.file-table__row--head {
+  color: var(--text-subtle);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.file-table__name {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-table__rename-input {
+  min-width: 80px;
+  width: min(260px, 100%);
+  height: 24px;
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  padding: 0 7px;
+  color: var(--text-strong);
+  background: var(--field-bg);
+  font-size: 12px;
+  outline: none;
+}
+
+.file-table__loading {
+  position: sticky;
+  bottom: 10px;
+  left: 0;
+  display: inline-flex;
+  max-width: min(420px, calc(100% - 16px));
+  align-items: center;
+  gap: 8px;
+  margin: 10px 8px 0;
+  border: 1px solid var(--field-border);
+  border-radius: 7px;
+  padding: 7px 10px;
+  color: var(--text-main);
+  background: color-mix(in srgb, var(--surface-4) 94%, transparent);
+  box-shadow: var(--shadow-strong);
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.file-table__loading span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-table__spinner {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+  border: 2px solid var(--app-border);
+  border-top-color: var(--accent);
+  border-radius: 999px;
+  animation: sftp-loading-spin 700ms linear infinite;
+}
+
+@keyframes sftp-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.sftp-strip {
+  height: 38px;
+  gap: 12px;
+  padding: 0 10px 0 12px;
+  color: var(--text-main);
+  background: var(--surface-2);
+}
+
+.sftp-strip__label {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.sftp-strip__path {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sftp-strip__meta {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+</style>
