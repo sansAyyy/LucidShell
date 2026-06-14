@@ -4,10 +4,9 @@ import {
   ArrowUpFromLine,
   Filter,
   FolderPlus,
-  History,
+  PanelLeftOpen,
   PanelLeftClose,
   Search,
-  Star,
 } from "@lucide/vue";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
@@ -401,17 +400,8 @@ async function importConnectionsFromDrop(event: DragEvent) {
       @change="importConnectionsFile"
     />
     <template v-if="collapsed">
-      <button class="rail-button rail-button--brand" title="展开连接栏" type="button" @click="emit('toggle-collapse')">
-        LS
-      </button>
-      <button class="rail-button" title="搜索连接" type="button" @click="emit('toggle-collapse')">
-        <Search :size="18" />
-      </button>
-      <button class="rail-button" title="收藏" type="button" @click="emit('toggle-collapse')">
-        <Star :size="18" />
-      </button>
-      <button class="rail-button" title="最近连接" type="button" @click="emit('toggle-collapse')">
-        <History :size="18" />
+      <button class="rail-button" title="展开连接栏" type="button" @click="emit('toggle-collapse')">
+        <PanelLeftOpen :size="18" />
       </button>
     </template>
 
