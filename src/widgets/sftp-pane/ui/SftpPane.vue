@@ -101,17 +101,14 @@ function showTransferQueue() {
 }
 
 function deleteEntry(entry: SftpPaneState["entries"][number]) {
-  showTransferQueue();
   runContextAction(() => emit("entry-context-delete", entry));
 }
 
 function downloadEntry(entry: SftpPaneState["entries"][number]) {
-  showTransferQueue();
   runContextAction(() => emit("entry-context-download", entry));
 }
 
 function editEntry(entry: SftpPaneState["entries"][number]) {
-  showTransferQueue();
   runContextAction(() => emit("entry-context-edit", entry));
 }
 
@@ -190,7 +187,6 @@ function commitEntryRename(entry: SftpPaneState["entries"][number]) {
   editingEntryName.value = "";
 
   if (name && name !== entry.name) {
-    showTransferQueue();
     emit("entry-context-rename", entry, name);
   }
 }
@@ -252,7 +248,6 @@ function handleDrop(event: DragEvent) {
   }
 
   event.preventDefault();
-  showTransferQueue();
   emit("drag-active", false);
 }
 

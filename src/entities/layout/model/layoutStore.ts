@@ -1248,7 +1248,6 @@ export const useLayoutStore = defineStore("layout", () => {
     }
 
     try {
-      showSftpTransferQueue(tab);
       await createSftpDirectory({
         serverSessionId: tab.serverSessionId,
         path: joinRemotePath(tab.sftp.currentPath || ".", folderName),
@@ -1279,7 +1278,6 @@ export const useLayoutStore = defineStore("layout", () => {
     }
 
     try {
-      showSftpTransferQueue(tab);
       await renameSftpEntry({
         serverSessionId: tab.serverSessionId,
         sourcePath: entry.path,
@@ -1319,7 +1317,6 @@ export const useLayoutStore = defineStore("layout", () => {
     }
 
     try {
-      showSftpTransferQueue(tab);
       await deleteSftpEntry({
         serverSessionId: tab.serverSessionId,
         path: entry.path,
@@ -1356,7 +1353,6 @@ export const useLayoutStore = defineStore("layout", () => {
     }
 
     tab.sftp.transferSummary = "preparing edit";
-    showSftpTransferQueue(tab);
 
     try {
       const editSession = await openSftpLocalEdit({
@@ -1521,7 +1517,6 @@ export const useLayoutStore = defineStore("layout", () => {
     }
 
     tab.sftp.transferSummary = "preparing upload";
-    showSftpTransferQueue(tab);
     updateSftpTransferQueue(tab);
 
     try {
@@ -1661,7 +1656,6 @@ export const useLayoutStore = defineStore("layout", () => {
       queue.cancelled = true;
       queue.items = [];
       if (tab) {
-        showSftpTransferQueue(tab);
         updateSftpTransferQueue(tab);
       }
     }
@@ -1675,7 +1669,6 @@ export const useLayoutStore = defineStore("layout", () => {
     }
 
     tab.sftp.transferSummary = "cancelling";
-    showSftpTransferQueue(tab);
     updateSftpTransferQueue(tab);
 
     try {
@@ -1701,7 +1694,6 @@ export const useLayoutStore = defineStore("layout", () => {
     const progress = transferPercent(event.transferredBytes, event.totalBytes);
 
     if (event.status === "started" || event.status === "progress") {
-      showSftpTransferQueue(tab);
       tab.sftp.transferProgress = progress;
       const fileName = remoteBasename(event.remotePath);
       tab.sftp.activeDownloadName = fileName || tab.sftp.activeDownloadName;
@@ -1717,7 +1709,6 @@ export const useLayoutStore = defineStore("layout", () => {
     }
 
     if (event.status === "completed") {
-      showSftpTransferQueue(tab);
       const fileName = tab.sftp.activeDownloadName ?? (remoteBasename(event.remotePath) || "download");
       const transferId = tab.sftp.activeDownloadId ?? event.transferId;
       tab.sftp.transferProgress = 100;
@@ -1740,7 +1731,6 @@ export const useLayoutStore = defineStore("layout", () => {
     }
 
     if (event.status === "cancelled") {
-      showSftpTransferQueue(tab);
       const fileName = tab.sftp.activeDownloadName ?? (remoteBasename(event.remotePath) || "download");
       const transferId = tab.sftp.activeDownloadId ?? event.transferId;
       tab.sftp.transferSummary = "cancelled";
@@ -1761,7 +1751,6 @@ export const useLayoutStore = defineStore("layout", () => {
     }
 
     const fileName = tab.sftp.activeDownloadName ?? (remoteBasename(event.remotePath) || "download");
-    showSftpTransferQueue(tab);
     const transferId = tab.sftp.activeDownloadId ?? event.transferId;
     tab.sftp.transferSummary = "download error";
     tab.sftp.activeDownloadId = undefined;
@@ -1796,7 +1785,6 @@ export const useLayoutStore = defineStore("layout", () => {
     const progress = transferPercent(event.transferredBytes, event.totalBytes);
 
     if (event.status === "started" || event.status === "progress") {
-      showSftpTransferQueue(tab);
       tab.sftp.transferProgress = progress;
       tab.sftp.activeUploadProgress = progress;
       const queue = uploadQueues.value[tab.id];
@@ -1810,7 +1798,6 @@ export const useLayoutStore = defineStore("layout", () => {
     }
 
     if (event.status === "completed") {
-      showSftpTransferQueue(tab);
       tab.sftp.transferProgress = 100;
       tab.sftp.activeUploadProgress = 100;
       const queue = uploadQueues.value[tab.id];
@@ -1826,7 +1813,6 @@ export const useLayoutStore = defineStore("layout", () => {
     }
 
     if (event.status === "cancelled") {
-      showSftpTransferQueue(tab);
       completeCurrentUpload(tab, "cancelled");
       removeUploadQueue(tab.id);
       return;
