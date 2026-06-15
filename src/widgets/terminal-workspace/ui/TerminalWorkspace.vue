@@ -36,10 +36,12 @@ const emit = defineEmits<{
   "sftp-download": [tabId: string];
   "sftp-entry-delete": [tabId: string, entry: RemoteFileEntry];
   "sftp-entry-edit": [tabId: string, entry: RemoteFileEntry];
+  "sftp-clear-transfer-queue": [tabId: string];
   "terminal-input": [tabId: string, payload: TerminalInputPayload];
   "terminal-resize": [tabId: string, size: { cols: number; rows: number; widthPx: number; heightPx: number }];
   "sftp-entry-open": [tabId: string, entry: RemoteFileEntry];
   "sftp-entry-rename": [tabId: string, entry: RemoteFileEntry, name: string];
+  "sftp-remove-transfer-item": [tabId: string, itemId: string];
   "sftp-go-parent": [tabId: string];
   "sftp-new-folder": [tabId: string];
   "sftp-refresh": [tabId: string];
@@ -318,6 +320,7 @@ function startSplitResize(event: PointerEvent) {
       @cancel-download="emit('sftp-cancel-download', currentTab.id)"
       @cancel-upload="emit('sftp-cancel-upload', currentTab.id)"
       @drag-active="emit('sftp-drag-active', $event)"
+      @clear-transfer-queue="emit('sftp-clear-transfer-queue', currentTab.id)"
       @download="emit('sftp-download', currentTab.id)"
       @entry-context-delete="emit('sftp-entry-delete', currentTab.id, $event)"
       @entry-context-download="emit('sftp-download', currentTab.id)"
@@ -327,6 +330,7 @@ function startSplitResize(event: PointerEvent) {
       @go-parent="emit('sftp-go-parent', currentTab.id)"
       @new-folder="emit('sftp-new-folder', currentTab.id)"
       @refresh="emit('sftp-refresh', currentTab.id)"
+      @remove-transfer-item="emit('sftp-remove-transfer-item', currentTab.id, $event)"
       @select-entry="emit('sftp-select-entry', currentTab.id, $event)"
       @toggle-collapse="emit('toggle-sftp')"
       @toggle-follow-cwd="emit('sftp-toggle-follow-cwd', currentTab.id)"

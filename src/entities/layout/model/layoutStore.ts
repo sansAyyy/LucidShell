@@ -1248,6 +1248,7 @@ export const useLayoutStore = defineStore("layout", () => {
     }
 
     try {
+      showSftpTransferQueue(tab);
       await createSftpDirectory({
         serverSessionId: tab.serverSessionId,
         path: joinRemotePath(tab.sftp.currentPath || ".", folderName),
@@ -1278,6 +1279,7 @@ export const useLayoutStore = defineStore("layout", () => {
     }
 
     try {
+      showSftpTransferQueue(tab);
       await renameSftpEntry({
         serverSessionId: tab.serverSessionId,
         sourcePath: entry.path,
@@ -1317,6 +1319,7 @@ export const useLayoutStore = defineStore("layout", () => {
     }
 
     try {
+      showSftpTransferQueue(tab);
       await deleteSftpEntry({
         serverSessionId: tab.serverSessionId,
         path: entry.path,
@@ -1353,6 +1356,7 @@ export const useLayoutStore = defineStore("layout", () => {
     }
 
     tab.sftp.transferSummary = "preparing edit";
+    showSftpTransferQueue(tab);
 
     try {
       const editSession = await openSftpLocalEdit({
@@ -1398,6 +1402,7 @@ export const useLayoutStore = defineStore("layout", () => {
       }
 
       const transferId = `download-${tab.id}-${Date.now()}`;
+      showSftpTransferQueue(tab);
       tab.sftp.transferSummary = "download 0%";
       tab.sftp.activeDownloadId = transferId;
       tab.sftp.activeDownloadName = selectedEntry.name;
@@ -1445,6 +1450,7 @@ export const useLayoutStore = defineStore("layout", () => {
     }
 
     const transferId = `download-${tab.id}-${Date.now()}`;
+    showSftpTransferQueue(tab);
     tab.sftp.transferSummary = "download 0%";
     tab.sftp.activeDownloadId = transferId;
     tab.sftp.activeDownloadName = selectedEntry.name;
@@ -1515,6 +1521,7 @@ export const useLayoutStore = defineStore("layout", () => {
     }
 
     tab.sftp.transferSummary = "preparing upload";
+    showSftpTransferQueue(tab);
     updateSftpTransferQueue(tab);
 
     try {
@@ -1654,6 +1661,7 @@ export const useLayoutStore = defineStore("layout", () => {
       queue.cancelled = true;
       queue.items = [];
       if (tab) {
+        showSftpTransferQueue(tab);
         updateSftpTransferQueue(tab);
       }
     }
@@ -1667,6 +1675,7 @@ export const useLayoutStore = defineStore("layout", () => {
     }
 
     tab.sftp.transferSummary = "cancelling";
+    showSftpTransferQueue(tab);
     updateSftpTransferQueue(tab);
 
     try {
@@ -1692,6 +1701,7 @@ export const useLayoutStore = defineStore("layout", () => {
     const progress = transferPercent(event.transferredBytes, event.totalBytes);
 
     if (event.status === "started" || event.status === "progress") {
+      showSftpTransferQueue(tab);
       tab.sftp.transferProgress = progress;
       const fileName = remoteBasename(event.remotePath);
       tab.sftp.activeDownloadName = fileName || tab.sftp.activeDownloadName;
@@ -1707,6 +1717,7 @@ export const useLayoutStore = defineStore("layout", () => {
     }
 
     if (event.status === "completed") {
+      showSftpTransferQueue(tab);
       const fileName = tab.sftp.activeDownloadName ?? (remoteBasename(event.remotePath) || "download");
       const transferId = tab.sftp.activeDownloadId ?? event.transferId;
       tab.sftp.transferProgress = 100;
@@ -1729,6 +1740,7 @@ export const useLayoutStore = defineStore("layout", () => {
     }
 
     if (event.status === "cancelled") {
+      showSftpTransferQueue(tab);
       const fileName = tab.sftp.activeDownloadName ?? (remoteBasename(event.remotePath) || "download");
       const transferId = tab.sftp.activeDownloadId ?? event.transferId;
       tab.sftp.transferSummary = "cancelled";
@@ -1749,6 +1761,7 @@ export const useLayoutStore = defineStore("layout", () => {
     }
 
     const fileName = tab.sftp.activeDownloadName ?? (remoteBasename(event.remotePath) || "download");
+    showSftpTransferQueue(tab);
     const transferId = tab.sftp.activeDownloadId ?? event.transferId;
     tab.sftp.transferSummary = "download error";
     tab.sftp.activeDownloadId = undefined;
@@ -1783,6 +1796,7 @@ export const useLayoutStore = defineStore("layout", () => {
     const progress = transferPercent(event.transferredBytes, event.totalBytes);
 
     if (event.status === "started" || event.status === "progress") {
+      showSftpTransferQueue(tab);
       tab.sftp.transferProgress = progress;
       tab.sftp.activeUploadProgress = progress;
       const queue = uploadQueues.value[tab.id];
@@ -1796,6 +1810,7 @@ export const useLayoutStore = defineStore("layout", () => {
     }
 
     if (event.status === "completed") {
+      showSftpTransferQueue(tab);
       tab.sftp.transferProgress = 100;
       tab.sftp.activeUploadProgress = 100;
       const queue = uploadQueues.value[tab.id];
@@ -1811,6 +1826,7 @@ export const useLayoutStore = defineStore("layout", () => {
     }
 
     if (event.status === "cancelled") {
+      showSftpTransferQueue(tab);
       completeCurrentUpload(tab, "cancelled");
       removeUploadQueue(tab.id);
       return;
@@ -1949,6 +1965,56 @@ export const useLayoutStore = defineStore("layout", () => {
     resetUploadQueueState(tab, status === "cancelled" ? "cancelled" : "upload error");
   }
 
+  function showSftpTransferQueue(tab: TerminalTab) {
+    sftpCollapsedByTab.value = {
+      ...sftpCollapsedByTab.value,
+      [tab.id]: false,
+    };
+  }
+
+  function clearSftpTransferQueue(tabId: string) {
+    const tab = tabs.value.find((item) => item.id === tabId);
+
+    if (!tab) {
+      return;
+    }
+
+    const queue = uploadQueues.value[tabId];
+    if (queue) {
+      queue.items = [];
+      queue.total = queue.current ? queue.completed + 1 : queue.completed;
+      tab.sftp.uploadQueuePending = 0;
+      tab.sftp.uploadQueueTotal = queue.total;
+    }
+
+    tab.sftp.transferQueue = tab.sftp.transferQueue.filter((item) => item.status === "running");
+  }
+
+  function removeSftpTransferItem(tabId: string, itemId: string) {
+    const tab = tabs.value.find((item) => item.id === tabId);
+
+    if (!tab) {
+      return;
+    }
+
+    const queuedUploadMatch = itemId.match(/^queued-upload-.+-(\d+)$/);
+    const queue = uploadQueues.value[tabId];
+    if (queuedUploadMatch && queue) {
+      const queueIndex = Number(queuedUploadMatch[1]);
+      if (Number.isInteger(queueIndex) && queueIndex >= 0 && queueIndex < queue.items.length) {
+        queue.items.splice(queueIndex, 1);
+        queue.total = Math.max(queue.completed + queue.items.length + (queue.current ? 1 : 0), queue.completed);
+        tab.sftp.uploadQueuePending = queue.items.length;
+        tab.sftp.uploadQueueTotal = queue.total;
+      }
+    }
+
+    tab.sftp.transferQueue = tab.sftp.transferQueue.filter((item) =>
+      item.status === "running" || item.id !== itemId,
+    );
+    updateSftpTransferQueue(tab);
+  }
+
   function resetUploadQueueState(tab: TerminalTab, summary = "idle") {
     tab.sftp.activeUploadId = undefined;
     tab.sftp.activeUploadName = undefined;
@@ -1995,7 +2061,7 @@ export const useLayoutStore = defineStore("layout", () => {
     if (queue?.items.length) {
       transfers.push(
         ...queue.items.slice(0, 20).map((item, index) => ({
-          id: `queued-upload-${tab.id}-${index}-${item.remotePath}`,
+          id: `queued-upload-${tab.id}-${index}`,
           direction: "upload" as const,
           name: item.fileName,
           status: "queued" as const,
@@ -2348,6 +2414,7 @@ export const useLayoutStore = defineStore("layout", () => {
     activeTabServer,
     activeTabId,
     cancelHostKeyTrust,
+    clearSftpTransferQueue,
     closeTerminalTab: closeTerminalTabById,
     closeServerSelectDialog,
     createTerminalTab,
@@ -2378,6 +2445,7 @@ export const useLayoutStore = defineStore("layout", () => {
     pendingHostKeyTrust,
     reconnectActiveTab,
     reconnectTerminalTab,
+    removeSftpTransferItem,
     retryServerConnection,
     renameTerminalTab,
     refreshSftpForTab,

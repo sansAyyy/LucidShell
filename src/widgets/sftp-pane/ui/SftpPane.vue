@@ -11,7 +11,7 @@ import {
   RefreshCw,
   X,
 } from "@lucide/vue";
-import { computed, nextTick, ref } from "vue";
+import { nextTick, ref, watch } from "vue";
 import { SftpEntryContextMenu } from "../../../features/sftp-entry-menu";
 import type { SftpPaneState } from "../../../entities/sftp/model/types";
 
@@ -27,6 +27,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   "cancel-download": [];
   "cancel-upload": [];
+  "clear-transfer-queue": [];
   "drag-active": [active: boolean];
   download: [];
   "entry-open": [entry: SftpPaneState["entries"][number]];
@@ -38,6 +39,7 @@ const emit = defineEmits<{
   "entry-context-download": [entry: SftpPaneState["entries"][number]];
   "entry-context-edit": [entry: SftpPaneState["entries"][number]];
   "entry-context-rename": [entry: SftpPaneState["entries"][number], name: string];
+  "remove-transfer-item": [itemId: string];
   "toggle-collapse": [];
   "toggle-follow-cwd": [];
   upload: [];
@@ -57,11 +59,18 @@ const renameInput = ref<HTMLInputElement>();
 const editingEntryPath = ref("");
 const editingEntryName = ref("");
 const activeView = ref<"files" | "queue">("files");
-const activeTransfers = computed(() =>
-  props.sftp.transferQueue.filter((item) => item.status === "queued" || item.status === "running"),
-);
-const transferHistory = computed(() =>
-  props.sftp.transferQueue.filter((item) => item.status !== "queued" && item.status !== "running"),
+
+watch(
+  () => ({
+    activeDownloadId: props.sftp.activeDownloadId,
+    activeUploadId: props.sftp.activeUploadId,
+    transferQueueLength: props.sftp.transferQueue.length,
+  }),
+  ({ activeDownloadId, activeUploadId, transferQueueLength }) => {
+    if (activeDownloadId || activeUploadId || transferQueueLength) {
+      showTransferQueue();
+    }
+  },
 );
 
 function openContextMenu(event: MouseEvent, entry: SftpPaneState["entries"][number]) {
@@ -87,15 +96,22 @@ function runContextAction(action: () => void) {
   action();
 }
 
+function showTransferQueue() {
+  activeView.value = "queue";
+}
+
 function deleteEntry(entry: SftpPaneState["entries"][number]) {
+  showTransferQueue();
   runContextAction(() => emit("entry-context-delete", entry));
 }
 
 function downloadEntry(entry: SftpPaneState["entries"][number]) {
+  showTransferQueue();
   runContextAction(() => emit("entry-context-download", entry));
 }
 
 function editEntry(entry: SftpPaneState["entries"][number]) {
+  showTransferQueue();
   runContextAction(() => emit("entry-context-edit", entry));
 }
 
@@ -126,6 +142,34 @@ function cancelTransfer(direction: SftpPaneState["transferQueue"][number]["direc
   emit("cancel-upload");
 }
 
+function removeTransferItem(item: SftpPaneState["transferQueue"][number]) {
+  if (item.status === "running") {
+    cancelTransfer(item.direction);
+    return;
+  }
+
+  emit("remove-transfer-item", item.id);
+}
+
+function clearTransferQueue() {
+  emit("clear-transfer-queue");
+}
+
+function emitUpload() {
+  showTransferQueue();
+  emit("upload");
+}
+
+function emitDownload() {
+  showTransferQueue();
+  emit("download");
+}
+
+function emitNewFolder() {
+  showTransferQueue();
+  emit("new-folder");
+}
+
 function beginRenameEntry(entry: SftpPaneState["entries"][number]) {
   editingEntryPath.value = entry.path;
   editingEntryName.value = entry.name;
@@ -146,6 +190,7 @@ function commitEntryRename(entry: SftpPaneState["entries"][number]) {
   editingEntryName.value = "";
 
   if (name && name !== entry.name) {
+    showTransferQueue();
     emit("entry-context-rename", entry, name);
   }
 }
@@ -207,6 +252,7 @@ function handleDrop(event: DragEvent) {
   }
 
   event.preventDefault();
+  showTransferQueue();
   emit("drag-active", false);
 }
 
@@ -273,7 +319,7 @@ function loadingMessage(sftp: SftpPaneState) {
         >
           <X :size="16" />
         </button>
-        <button v-else title="上传" type="button" @click="emit('upload')">
+        <button v-else title="上传" type="button" @click="emitUpload">
           <ArrowUpFromLine :size="16" />
         </button>
         <button
@@ -284,10 +330,10 @@ function loadingMessage(sftp: SftpPaneState) {
         >
           <X :size="16" />
         </button>
-        <button v-else title="下载选中文件" type="button" @click="emit('download')">
+        <button v-else title="下载选中文件" type="button" @click="emitDownload">
           <ArrowDownToLine :size="16" />
         </button>
-        <button title="新建文件夹" type="button" @click="emit('new-folder')">
+        <button title="新建文件夹" type="button" @click="emitNewFolder">
           <FolderPlus :size="16" />
         </button>
         <button
@@ -395,71 +441,45 @@ function loadingMessage(sftp: SftpPaneState) {
     </div>
 
     <div v-else class="transfer-queue">
-      <section class="transfer-queue__section">
-        <header>
-          <span>当前任务</span>
-          <span>{{ activeTransfers.length }} 项</span>
-        </header>
-        <div v-if="activeTransfers.length" class="transfer-queue__list">
-          <div
-            v-for="item in activeTransfers"
-            :key="item.id"
-            class="transfer-item"
-            :class="`transfer-item--${item.status}`"
+      <header class="transfer-queue__header">
+        <span>{{ sftp.transferQueue.length }} 项</span>
+        <button
+          :disabled="!sftp.transferQueue.length"
+          title="清空传输队列"
+          type="button"
+          @click="clearTransferQueue"
+        >
+          清空
+        </button>
+      </header>
+      <div v-if="sftp.transferQueue.length" class="transfer-queue__list">
+        <div
+          v-for="item in sftp.transferQueue"
+          :key="item.id"
+          class="transfer-item"
+          :class="`transfer-item--${item.status}`"
+        >
+          <span class="transfer-item__icon">
+            <ArrowUpFromLine v-if="item.direction === 'upload'" :size="14" />
+            <ArrowDownToLine v-else :size="14" />
+          </span>
+          <span class="transfer-item__name" :title="item.name">{{ item.name }}</span>
+          <span class="transfer-item__summary">
+            {{ transferDirectionLabel(item.direction) }} · {{ item.summary ?? transferStatusLabel(item.status) }}
+          </span>
+          <span class="transfer-item__progress">
+            <span :style="{ width: `${item.progress ?? 0}%` }" />
+          </span>
+          <button
+            :title="item.status === 'running' ? '取消任务' : '从队列移除'"
+            type="button"
+            @click.stop="removeTransferItem(item)"
           >
-            <span class="transfer-item__icon">
-              <ArrowUpFromLine v-if="item.direction === 'upload'" :size="14" />
-              <ArrowDownToLine v-else :size="14" />
-            </span>
-            <span class="transfer-item__name" :title="item.name">{{ item.name }}</span>
-            <span class="transfer-item__summary">
-              {{ transferDirectionLabel(item.direction) }} · {{ item.summary ?? transferStatusLabel(item.status) }}
-            </span>
-            <span class="transfer-item__progress">
-              <span :style="{ width: `${item.progress ?? 0}%` }" />
-            </span>
-            <button
-              v-if="item.status === 'running'"
-              :title="item.direction === 'download' ? '取消下载' : '取消上传队列'"
-              type="button"
-              @click.stop="cancelTransfer(item.direction)"
-            >
-              <X :size="14" />
-            </button>
-            <span v-else class="transfer-item__placeholder" />
-          </div>
+            <X :size="14" />
+          </button>
         </div>
-        <div v-else class="transfer-queue__empty">暂无传输任务</div>
-      </section>
-
-      <section class="transfer-queue__section">
-        <header>
-          <span>最近记录</span>
-          <span>{{ transferHistory.length }} 项</span>
-        </header>
-        <div v-if="transferHistory.length" class="transfer-queue__list">
-          <div
-            v-for="item in transferHistory"
-            :key="item.id"
-            class="transfer-item"
-            :class="`transfer-item--${item.status}`"
-          >
-            <span class="transfer-item__icon">
-              <ArrowUpFromLine v-if="item.direction === 'upload'" :size="14" />
-              <ArrowDownToLine v-else :size="14" />
-            </span>
-            <span class="transfer-item__name" :title="item.name">{{ item.name }}</span>
-            <span class="transfer-item__summary">
-              {{ transferDirectionLabel(item.direction) }} · {{ item.summary ?? transferStatusLabel(item.status) }}
-            </span>
-            <span class="transfer-item__progress">
-              <span :style="{ width: `${item.progress ?? 0}%` }" />
-            </span>
-            <span class="transfer-item__placeholder" />
-          </div>
-        </div>
-        <div v-else class="transfer-queue__empty">暂无历史记录</div>
-      </section>
+      </div>
+      <div v-else class="transfer-queue__empty">暂无传输任务</div>
     </div>
 
     <SftpEntryContextMenu

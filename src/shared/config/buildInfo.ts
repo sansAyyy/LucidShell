@@ -1,6 +1,6 @@
 export const buildInfo = {
   appVersion: "0.1.1",
-  buildDate: "2026-06-15T13:42:53.405Z",
+  buildDate: "2026-06-15T13:57:19.291Z",
   gitBranch: "main",
-  gitCommit: "f0ed8f2",
+  gitCommit: "240c574",
 } as const;
