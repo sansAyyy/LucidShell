@@ -67,6 +67,7 @@ const emptyMonitor: MonitorState = {};
 const TERMINAL_WRITE_CHUNK_SIZE = 4096;
 const TERMINAL_PASTE_CONFIRM_THRESHOLD = 20_000;
 const TERMINAL_WRITE_QUEUE_LIMIT = 2_000_000;
+const SFTP_TRANSFER_HISTORY_LIMIT = 20;
 const HEALTH_CHECK_INTERVAL_MS = 30_000;
 const HEALTH_CHECK_MIN_GAP_MS = 5_000;
 const CWD_OSC_PATTERN = /\x1b\]777;LucidShell;cwd=([^\x07\x1b]*)(?:\x07|\x1b\\)/g;
@@ -1706,6 +1707,8 @@ export const useLayoutStore = defineStore("layout", () => {
     }
 
     if (event.status === "completed") {
+      const fileName = tab.sftp.activeDownloadName ?? (remoteBasename(event.remotePath) || "download");
+      const transferId = tab.sftp.activeDownloadId ?? event.transferId;
       tab.sftp.transferProgress = 100;
       tab.sftp.activeDownloadProgress = 100;
       tab.sftp.transferSummary = "downloaded";
@@ -1714,25 +1717,53 @@ export const useLayoutStore = defineStore("layout", () => {
       tab.sftp.activeDownloadProgress = undefined;
       tab.sftp.transferProgress = undefined;
       updateSftpTransferQueue(tab);
+      rememberSftpTransfer(tab, {
+        id: transferId,
+        direction: "download",
+        name: fileName,
+        status: "completed",
+        progress: 100,
+        summary: "已完成",
+      });
       return;
     }
 
     if (event.status === "cancelled") {
+      const fileName = tab.sftp.activeDownloadName ?? (remoteBasename(event.remotePath) || "download");
+      const transferId = tab.sftp.activeDownloadId ?? event.transferId;
       tab.sftp.transferSummary = "cancelled";
       tab.sftp.activeDownloadId = undefined;
       tab.sftp.activeDownloadName = undefined;
       tab.sftp.activeDownloadProgress = undefined;
       tab.sftp.transferProgress = undefined;
       updateSftpTransferQueue(tab);
+      rememberSftpTransfer(tab, {
+        id: transferId,
+        direction: "download",
+        name: fileName,
+        status: "cancelled",
+        progress: 0,
+        summary: "已取消",
+      });
       return;
     }
 
+    const fileName = tab.sftp.activeDownloadName ?? (remoteBasename(event.remotePath) || "download");
+    const transferId = tab.sftp.activeDownloadId ?? event.transferId;
     tab.sftp.transferSummary = "download error";
     tab.sftp.activeDownloadId = undefined;
     tab.sftp.activeDownloadName = undefined;
     tab.sftp.activeDownloadProgress = undefined;
     tab.sftp.transferProgress = undefined;
     updateSftpTransferQueue(tab);
+    rememberSftpTransfer(tab, {
+      id: transferId,
+      direction: "download",
+      name: fileName,
+      status: "error",
+      progress: 0,
+      summary: event.error ? shortError(event.error) : "下载失败",
+    });
     tab.status = "warning";
     recordTabDiagnostic("sftp", tab, "SFTP 下载任务失败", {
       error: event.error,
@@ -1877,6 +1908,8 @@ export const useLayoutStore = defineStore("layout", () => {
 
   function completeCurrentUpload(tab: TerminalTab, status: "cancelled" | "completed" | "error") {
     const queue = uploadQueues.value[tab.id];
+    const transferId = tab.sftp.activeUploadId ?? `upload-${tab.id}-${Date.now()}`;
+    const transferName = tab.sftp.activeUploadName ?? queue?.current?.fileName ?? "upload";
 
     if (queue?.current) {
       queue.completed += status === "completed" ? 1 : 0;
@@ -1892,6 +1925,14 @@ export const useLayoutStore = defineStore("layout", () => {
     tab.sftp.uploadQueuePending = queue?.items.length;
     tab.sftp.uploadQueueTotal = queue?.total;
     updateSftpTransferQueue(tab);
+    rememberSftpTransfer(tab, {
+      id: transferId,
+      direction: "upload",
+      name: transferName,
+      status,
+      progress: status === "completed" ? 100 : 0,
+      summary: status === "completed" ? "已完成" : status === "cancelled" ? "已取消" : "上传失败",
+    });
 
     if (status === "completed" && queue && queue.items.length > 0) {
       tab.sftp.transferSummary = `queued ${queue.items.length}`;
@@ -1922,6 +1963,9 @@ export const useLayoutStore = defineStore("layout", () => {
 
   function updateSftpTransferQueue(tab: TerminalTab) {
     const queue = uploadQueues.value[tab.id];
+    const history = tab.sftp.transferQueue.filter((item) =>
+      item.status === "cancelled" || item.status === "completed" || item.status === "error",
+    );
     const transfers: SftpTransferItem[] = [];
 
     if (tab.sftp.activeDownloadId) {
@@ -1970,7 +2014,22 @@ export const useLayoutStore = defineStore("layout", () => {
       }
     }
 
-    tab.sftp.transferQueue = transfers;
+    tab.sftp.transferQueue = [...transfers, ...history].slice(0, SFTP_TRANSFER_HISTORY_LIMIT);
+  }
+
+  function rememberSftpTransfer(tab: TerminalTab, transfer: SftpTransferItem) {
+    const activeTransfers = tab.sftp.transferQueue.filter((item) =>
+      item.status === "queued" || item.status === "running",
+    );
+    const history = tab.sftp.transferQueue.filter((item) =>
+      item.status === "cancelled" || item.status === "completed" || item.status === "error",
+    );
+
+    tab.sftp.transferQueue = [
+      ...activeTransfers,
+      transfer,
+      ...history.filter((item) => item.id !== transfer.id),
+    ].slice(0, SFTP_TRANSFER_HISTORY_LIMIT);
   }
 
   function formatUploadQueueSummary(

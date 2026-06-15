@@ -12,7 +12,7 @@ export type SftpTransferItem = {
   id: string;
   direction: "upload" | "download";
   name: string;
-  status: "queued" | "running";
+  status: "cancelled" | "completed" | "error" | "queued" | "running";
   progress?: number;
   summary?: string;
 };

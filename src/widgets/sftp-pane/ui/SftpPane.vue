@@ -11,11 +11,11 @@ import {
   RefreshCw,
   X,
 } from "@lucide/vue";
-import { nextTick, ref } from "vue";
+import { computed, nextTick, ref } from "vue";
 import { SftpEntryContextMenu } from "../../../features/sftp-entry-menu";
 import type { SftpPaneState } from "../../../entities/sftp/model/types";
 
-defineProps<{
+const props = defineProps<{
   collapsed: boolean;
   dragActive: boolean;
   followTerminalCwd: boolean;
@@ -56,6 +56,13 @@ const contextMenu = ref<{
 const renameInput = ref<HTMLInputElement>();
 const editingEntryPath = ref("");
 const editingEntryName = ref("");
+const activeView = ref<"files" | "queue">("files");
+const activeTransfers = computed(() =>
+  props.sftp.transferQueue.filter((item) => item.status === "queued" || item.status === "running"),
+);
+const transferHistory = computed(() =>
+  props.sftp.transferQueue.filter((item) => item.status !== "queued" && item.status !== "running"),
+);
 
 function openContextMenu(event: MouseEvent, entry: SftpPaneState["entries"][number]) {
   emit("select-entry", entry);
@@ -97,7 +104,17 @@ function renameEntry(entry: SftpPaneState["entries"][number]) {
 }
 
 function transferStatusLabel(status: SftpPaneState["transferQueue"][number]["status"]) {
-  return status === "running" ? "传输中" : "等待中";
+  return {
+    cancelled: "已取消",
+    completed: "已完成",
+    error: "失败",
+    queued: "等待中",
+    running: "传输中",
+  }[status];
+}
+
+function transferDirectionLabel(direction: SftpPaneState["transferQueue"][number]["direction"]) {
+  return direction === "download" ? "下载" : "上传";
 }
 
 function cancelTransfer(direction: SftpPaneState["transferQueue"][number]["direction"]) {
@@ -303,43 +320,33 @@ function loadingMessage(sftp: SftpPaneState) {
       <span :style="{ width: `${sftp.transferProgress ?? 0}%` }" />
     </div>
 
-    <div v-if="sftp.transferQueue.length" class="transfer-panel">
-      <div class="transfer-panel__header">
-        <span>传输队列</span>
-        <span>{{ sftp.transferQueue.length }} 项</span>
-      </div>
-      <div class="transfer-panel__list">
-        <div
-          v-for="item in sftp.transferQueue"
-          :key="item.id"
-          class="transfer-item"
-          :class="`transfer-item--${item.status}`"
-        >
-          <span class="transfer-item__icon">
-            <ArrowUpFromLine v-if="item.direction === 'upload'" :size="14" />
-            <ArrowDownToLine v-else :size="14" />
-          </span>
-          <span class="transfer-item__name" :title="item.name">{{ item.name }}</span>
-          <span class="transfer-item__summary">
-            {{ item.summary ?? transferStatusLabel(item.status) }}
-          </span>
-          <span class="transfer-item__progress">
-            <span :style="{ width: `${item.progress ?? 0}%` }" />
-          </span>
-          <button
-            v-if="item.status === 'running'"
-            :title="item.direction === 'download' ? '取消下载' : '取消上传队列'"
-            type="button"
-            @click.stop="cancelTransfer(item.direction)"
-          >
-            <X :size="14" />
-          </button>
-          <span v-else class="transfer-item__placeholder" />
-        </div>
-      </div>
+    <div class="sftp-tabs">
+      <button
+        class="sftp-tabs__button"
+        :class="{ 'sftp-tabs__button--active': activeView === 'files' }"
+        type="button"
+        @click="activeView = 'files'"
+      >
+        文件
+      </button>
+      <button
+        class="sftp-tabs__button"
+        :class="{ 'sftp-tabs__button--active': activeView === 'queue' }"
+        type="button"
+        @click="activeView = 'queue'"
+      >
+        传输队列
+        <span v-if="sftp.transferQueue.length">{{ sftp.transferQueue.length }}</span>
+      </button>
     </div>
 
-    <div class="file-table" :class="{ 'file-table--loading': sftp.loading }" role="table" aria-label="Remote files">
+    <div
+      v-if="activeView === 'files'"
+      class="file-table"
+      :class="{ 'file-table--loading': sftp.loading }"
+      role="table"
+      aria-label="Remote files"
+    >
       <div class="file-table__row file-table__row--head" role="row">
         <span>Name</span>
         <span>Size</span>
@@ -387,6 +394,74 @@ function loadingMessage(sftp: SftpPaneState) {
       </div>
     </div>
 
+    <div v-else class="transfer-queue">
+      <section class="transfer-queue__section">
+        <header>
+          <span>当前任务</span>
+          <span>{{ activeTransfers.length }} 项</span>
+        </header>
+        <div v-if="activeTransfers.length" class="transfer-queue__list">
+          <div
+            v-for="item in activeTransfers"
+            :key="item.id"
+            class="transfer-item"
+            :class="`transfer-item--${item.status}`"
+          >
+            <span class="transfer-item__icon">
+              <ArrowUpFromLine v-if="item.direction === 'upload'" :size="14" />
+              <ArrowDownToLine v-else :size="14" />
+            </span>
+            <span class="transfer-item__name" :title="item.name">{{ item.name }}</span>
+            <span class="transfer-item__summary">
+              {{ transferDirectionLabel(item.direction) }} · {{ item.summary ?? transferStatusLabel(item.status) }}
+            </span>
+            <span class="transfer-item__progress">
+              <span :style="{ width: `${item.progress ?? 0}%` }" />
+            </span>
+            <button
+              v-if="item.status === 'running'"
+              :title="item.direction === 'download' ? '取消下载' : '取消上传队列'"
+              type="button"
+              @click.stop="cancelTransfer(item.direction)"
+            >
+              <X :size="14" />
+            </button>
+            <span v-else class="transfer-item__placeholder" />
+          </div>
+        </div>
+        <div v-else class="transfer-queue__empty">暂无传输任务</div>
+      </section>
+
+      <section class="transfer-queue__section">
+        <header>
+          <span>最近记录</span>
+          <span>{{ transferHistory.length }} 项</span>
+        </header>
+        <div v-if="transferHistory.length" class="transfer-queue__list">
+          <div
+            v-for="item in transferHistory"
+            :key="item.id"
+            class="transfer-item"
+            :class="`transfer-item--${item.status}`"
+          >
+            <span class="transfer-item__icon">
+              <ArrowUpFromLine v-if="item.direction === 'upload'" :size="14" />
+              <ArrowDownToLine v-else :size="14" />
+            </span>
+            <span class="transfer-item__name" :title="item.name">{{ item.name }}</span>
+            <span class="transfer-item__summary">
+              {{ transferDirectionLabel(item.direction) }} · {{ item.summary ?? transferStatusLabel(item.status) }}
+            </span>
+            <span class="transfer-item__progress">
+              <span :style="{ width: `${item.progress ?? 0}%` }" />
+            </span>
+            <span class="transfer-item__placeholder" />
+          </div>
+        </div>
+        <div v-else class="transfer-queue__empty">暂无历史记录</div>
+      </section>
+    </div>
+
     <SftpEntryContextMenu
       :entry="contextMenu.entry"
       :open="contextMenu.open"
@@ -411,7 +486,7 @@ function loadingMessage(sftp: SftpPaneState) {
   position: relative;
   display: grid;
   min-height: 0;
-  grid-template-rows: 36px auto auto minmax(0, 1fr);
+  grid-template-rows: 36px 31px minmax(0, 1fr);
   border-top: 1px solid var(--app-border);
   background: var(--surface-2);
 }
@@ -450,6 +525,11 @@ function loadingMessage(sftp: SftpPaneState) {
 }
 
 .sftp-pane__progress {
+  position: absolute;
+  top: 36px;
+  right: 0;
+  left: 0;
+  z-index: 1;
   height: 3px;
   overflow: hidden;
   background: var(--app-border);
@@ -536,27 +616,92 @@ function loadingMessage(sftp: SftpPaneState) {
   background: #342024;
 }
 
-.transfer-panel {
+.sftp-tabs {
+  display: flex;
   min-height: 0;
-  max-height: 138px;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px 0;
   border-bottom: 1px solid var(--app-border);
+  background: var(--surface-2);
+}
+
+.sftp-tabs__button {
+  display: inline-flex;
+  height: 26px;
+  align-items: center;
+  gap: 6px;
+  border-radius: 6px 6px 0 0;
+  padding: 0 10px;
+  color: var(--text-muted);
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.sftp-tabs__button:hover {
+  color: var(--text-strong);
+  background: var(--surface-hover);
+}
+
+.sftp-tabs__button--active {
+  color: var(--text-strong);
   background: var(--surface-3);
 }
 
-.transfer-panel__header {
+.sftp-tabs__button span {
+  min-width: 18px;
+  border-radius: 999px;
+  padding: 1px 6px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  font-size: 11px;
+  text-align: center;
+}
+
+.transfer-queue {
+  display: grid;
+  grid-row: 3;
+  min-height: 0;
+  align-content: start;
+  gap: 12px;
+  overflow: auto;
+  padding: 10px 10px 14px;
+  background: var(--surface-3);
+}
+
+.transfer-queue__section {
+  display: grid;
+  gap: 8px;
+}
+
+.transfer-queue__section header {
   display: flex;
-  height: 28px;
   align-items: center;
   justify-content: space-between;
-  padding: 0 12px;
+  padding: 0 2px;
   color: var(--text-muted);
   font-size: 12px;
 }
 
-.transfer-panel__list {
-  max-height: 110px;
-  overflow: auto;
-  padding: 0 8px 8px;
+.transfer-queue__section header span:first-child {
+  color: var(--text-strong);
+  font-weight: 650;
+}
+
+.transfer-queue__list {
+  display: grid;
+  gap: 3px;
+}
+
+.transfer-queue__empty {
+  display: grid;
+  min-height: 72px;
+  place-items: center;
+  border: 1px dashed var(--field-border);
+  border-radius: 7px;
+  color: var(--text-muted);
+  font-size: 12px;
 }
 
 .transfer-item {
@@ -577,6 +722,22 @@ function loadingMessage(sftp: SftpPaneState) {
 
 .transfer-item--queued {
   color: var(--text-muted);
+}
+
+.transfer-item--completed {
+  color: var(--text-main);
+}
+
+.transfer-item--completed .transfer-item__icon {
+  color: var(--success);
+}
+
+.transfer-item--cancelled .transfer-item__icon {
+  color: var(--warning);
+}
+
+.transfer-item--error .transfer-item__icon {
+  color: var(--danger);
 }
 
 .transfer-item__icon {
@@ -641,6 +802,7 @@ function loadingMessage(sftp: SftpPaneState) {
 
 .file-table {
   position: relative;
+  grid-row: 3;
   min-height: 0;
   overflow: auto;
   padding: 6px 8px 12px;
