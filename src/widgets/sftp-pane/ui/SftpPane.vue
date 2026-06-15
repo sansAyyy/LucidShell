@@ -437,8 +437,9 @@ function loadingMessage(sftp: SftpPaneState) {
 
     <div v-else class="transfer-queue">
       <header class="transfer-queue__header">
-        <span>{{ sftp.transferQueue.length }} 项</span>
+        <span class="transfer-queue__count">{{ sftp.transferQueue.length }} 项</span>
         <button
+          class="transfer-queue__clear"
           :disabled="!sftp.transferQueue.length"
           title="清空传输队列"
           type="button"
@@ -679,29 +680,47 @@ function loadingMessage(sftp: SftpPaneState) {
   grid-row: 3;
   min-height: 0;
   align-content: start;
-  gap: 12px;
+  gap: 8px;
   overflow: auto;
-  padding: 10px 10px 14px;
+  padding: 8px 10px 14px;
   background: var(--surface-3);
 }
 
-.transfer-queue__section {
-  display: grid;
-  gap: 8px;
-}
-
-.transfer-queue__section header {
+.transfer-queue__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 2px;
+  min-height: 26px;
+  padding: 0 4px 2px;
   color: var(--text-muted);
   font-size: 12px;
 }
 
-.transfer-queue__section header span:first-child {
+.transfer-queue__count {
   color: var(--text-strong);
   font-weight: 650;
+}
+
+.transfer-queue__clear {
+  height: 24px;
+  border: 1px solid var(--field-border);
+  border-radius: 5px;
+  padding: 0 10px;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.transfer-queue__clear:hover {
+  color: var(--text-strong);
+  background: var(--surface-hover);
+}
+
+.transfer-queue__clear:disabled {
+  color: var(--text-subtle);
+  background: transparent;
+  cursor: default;
 }
 
 .transfer-queue__list {
