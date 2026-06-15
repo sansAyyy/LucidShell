@@ -61,13 +61,12 @@ const editingEntryName = ref("");
 const activeView = ref<"files" | "queue">("files");
 
 watch(
-  () => ({
-    activeDownloadId: props.sftp.activeDownloadId,
-    activeUploadId: props.sftp.activeUploadId,
-    transferQueueLength: props.sftp.transferQueue.length,
-  }),
-  ({ activeDownloadId, activeUploadId, transferQueueLength }) => {
-    if (activeDownloadId || activeUploadId || transferQueueLength) {
+  [() => props.sftp.activeUploadId, () => props.sftp.transferQueue.length],
+  ([activeUploadId, transferQueueLength], [previousActiveUploadId, previousTransferQueueLength]) => {
+    const uploadStarted = Boolean(activeUploadId && activeUploadId !== previousActiveUploadId);
+    const queueAdded = transferQueueLength > previousTransferQueueLength;
+
+    if (uploadStarted || queueAdded) {
       showTransferQueue();
     }
   },
@@ -158,12 +157,10 @@ function emitUpload() {
 }
 
 function emitDownload() {
-  showTransferQueue();
   emit("download");
 }
 
 function emitNewFolder() {
-  showTransferQueue();
   emit("new-folder");
 }
 

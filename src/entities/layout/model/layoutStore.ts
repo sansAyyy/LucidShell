@@ -1398,13 +1398,11 @@ export const useLayoutStore = defineStore("layout", () => {
       }
 
       const transferId = `download-${tab.id}-${Date.now()}`;
-      showSftpTransferQueue(tab);
       tab.sftp.transferSummary = "download 0%";
       tab.sftp.activeDownloadId = transferId;
       tab.sftp.activeDownloadName = selectedEntry.name;
       tab.sftp.activeDownloadProgress = 0;
       tab.sftp.transferProgress = 0;
-      updateSftpTransferQueue(tab);
 
       try {
         await downloadSftpDirectory({
@@ -1446,13 +1444,11 @@ export const useLayoutStore = defineStore("layout", () => {
     }
 
     const transferId = `download-${tab.id}-${Date.now()}`;
-    showSftpTransferQueue(tab);
     tab.sftp.transferSummary = "download 0%";
     tab.sftp.activeDownloadId = transferId;
     tab.sftp.activeDownloadName = selectedEntry.name;
     tab.sftp.activeDownloadProgress = 0;
     tab.sftp.transferProgress = 0;
-    updateSftpTransferQueue(tab);
 
     try {
       await downloadSftpFile({
@@ -1694,6 +1690,7 @@ export const useLayoutStore = defineStore("layout", () => {
     const progress = transferPercent(event.transferredBytes, event.totalBytes);
 
     if (event.status === "started" || event.status === "progress") {
+      showSftpTransferQueue(tab);
       tab.sftp.transferProgress = progress;
       const fileName = remoteBasename(event.remotePath);
       tab.sftp.activeDownloadName = fileName || tab.sftp.activeDownloadName;
