@@ -44,6 +44,17 @@ export const useSettingsStore = defineStore("settings", () => {
     await saveSettingsSnapshot(snapshot.value);
   }
 
+  async function setDiagnosticsEnabled(value: boolean) {
+    snapshot.value = {
+      ...snapshot.value,
+      diagnostics: {
+        ...snapshot.value.diagnostics,
+        enabled: value,
+      },
+    };
+    await saveSettingsSnapshot(snapshot.value);
+  }
+
   async function acknowledgeFollowTerminalCwdPrompt() {
     if (snapshot.value.sftp.followTerminalCwdPromptAcknowledged) {
       return;
@@ -64,6 +75,7 @@ export const useSettingsStore = defineStore("settings", () => {
     settings: snapshot,
     acknowledgeFollowTerminalCwdPrompt,
     hydrateSettings,
+    setDiagnosticsEnabled,
     setFollowTerminalCwdByDefault,
     setTheme,
     toggleTheme,

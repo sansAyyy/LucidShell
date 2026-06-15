@@ -15,6 +15,9 @@ export function createDefaultSettingsSnapshot(): AppSettingsSnapshot {
     appearance: {
       theme: "dark",
     },
+    diagnostics: {
+      enabled: false,
+    },
     sftp: {
       followTerminalCwdByDefault: false,
       followTerminalCwdPromptAcknowledged: false,
@@ -35,6 +38,7 @@ export function migrateSettingsSnapshot(value: unknown): AppSettingsSnapshot | u
 
   const sftp = isRecord(value.sftp) ? value.sftp : {};
   const appearance = isRecord(value.appearance) ? value.appearance : {};
+  const diagnostics = isRecord(value.diagnostics) ? value.diagnostics : {};
   const theme = appearance.theme === "light" || appearance.theme === "dark"
     ? appearance.theme
     : "dark";
@@ -43,6 +47,9 @@ export function migrateSettingsSnapshot(value: unknown): AppSettingsSnapshot | u
     version: CURRENT_SETTINGS_VERSION,
     appearance: {
       theme,
+    },
+    diagnostics: {
+      enabled: typeof diagnostics.enabled === "boolean" ? diagnostics.enabled : false,
     },
     sftp: {
       followTerminalCwdByDefault:

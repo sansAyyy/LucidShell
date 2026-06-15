@@ -4,6 +4,9 @@ export type AppSettings = {
   appearance: {
     theme: AppTheme;
   };
+  diagnostics: {
+    enabled: boolean;
+  };
   sftp: {
     followTerminalCwdByDefault: boolean;
     followTerminalCwdPromptAcknowledged: boolean;

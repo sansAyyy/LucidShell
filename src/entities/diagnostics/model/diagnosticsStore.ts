@@ -3,6 +3,7 @@ import { ref } from "vue";
 import { isTauri } from "@tauri-apps/api/core";
 import { appendDiagnosticLog, clearDiagnosticLog, readDiagnosticLog } from "../../../shared/api/tauri";
 import { buildInfo } from "../../../shared/config/buildInfo";
+import { useSettingsStore } from "../../settings/model/settingsStore";
 
 export type DiagnosticLevel = "info" | "warn" | "error";
 export type DiagnosticScope = "connection" | "terminal" | "sftp" | "credential" | "settings" | "system";
@@ -41,6 +42,14 @@ export const useDiagnosticsStore = defineStore("diagnostics", () => {
   const hydrated = ref(false);
 
   async function hydrateDiagnostics() {
+    const settings = useSettingsStore();
+
+    if (!settings.settings.diagnostics.enabled) {
+      entries.value = [];
+      hydrated.value = true;
+      return;
+    }
+
     if (hydrated.value || !isTauri()) {
       hydrated.value = true;
       return;
@@ -63,6 +72,10 @@ export const useDiagnosticsStore = defineStore("diagnostics", () => {
   }
 
   function record(entry: Omit<DiagnosticEntry, "id" | "timestamp">) {
+    if (!useSettingsStore().settings.diagnostics.enabled) {
+      return;
+    }
+
     const nextEntry: DiagnosticEntry = {
       ...entry,
       context: {

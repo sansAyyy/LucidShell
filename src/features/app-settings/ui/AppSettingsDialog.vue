@@ -2,12 +2,14 @@
 import { DiagnosticsPanel } from "../../diagnostics-panel";
 
 defineProps<{
+  diagnosticsEnabled: boolean;
   followTerminalCwdByDefault: boolean;
   open: boolean;
 }>();
 
 const emit = defineEmits<{
   close: [];
+  "update-diagnostics-enabled": [value: boolean];
   "update-follow-terminal-cwd-by-default": [value: boolean];
 }>();
 </script>
@@ -32,6 +34,21 @@ const emit = defineEmits<{
               :checked="followTerminalCwdByDefault"
               type="checkbox"
               @change="emit('update-follow-terminal-cwd-by-default', ($event.target as HTMLInputElement).checked)"
+            >
+          </label>
+        </div>
+
+        <div class="settings-section">
+          <h3>诊断</h3>
+          <label class="settings-row">
+            <span>
+              <strong>记录诊断日志</strong>
+              <small>开启后记录连接、终端、SFTP 和凭据错误，便于排查问题。</small>
+            </span>
+            <input
+              :checked="diagnosticsEnabled"
+              type="checkbox"
+              @change="emit('update-diagnostics-enabled', ($event.target as HTMLInputElement).checked)"
             >
           </label>
         </div>

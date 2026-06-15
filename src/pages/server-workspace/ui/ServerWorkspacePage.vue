@@ -36,11 +36,12 @@ type DragPosition = {
 };
 
 onMounted(() => {
-  void Promise.all([
-    diagnostics.hydrateDiagnostics(),
-    serverStore.hydrateConnections(),
-    settingsStore.hydrateSettings(),
-  ]).then(() => layout.initTerminalEvents());
+  void settingsStore.hydrateSettings().then(() =>
+    Promise.all([
+      diagnostics.hydrateDiagnostics(),
+      serverStore.hydrateConnections(),
+    ]),
+  ).then(() => layout.initTerminalEvents());
 
   if (isTauri()) {
     void getCurrentWindow().onDragDropEvent((event) => {
@@ -213,9 +214,11 @@ function openSettingsFromFollowConfirm() {
       @select="layout.selectServerForNewTab"
     />
     <AppSettingsDialog
+      :diagnostics-enabled="settingsStore.settings.diagnostics.enabled"
       :open="settingsDialogOpen"
       :follow-terminal-cwd-by-default="settingsStore.settings.sftp.followTerminalCwdByDefault"
       @close="settingsDialogOpen = false"
+      @update-diagnostics-enabled="settingsStore.setDiagnosticsEnabled"
       @update-follow-terminal-cwd-by-default="settingsStore.setFollowTerminalCwdByDefault"
     />
     <AboutAppDialog
