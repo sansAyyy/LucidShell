@@ -9,6 +9,24 @@ import { useSettingsStore } from "../../settings/model/settingsStore";
 import { useNotificationStore } from "../../notification/model/notificationStore";
 import { useDiagnosticsStore, type DiagnosticScope } from "../../diagnostics/model/diagnosticsStore";
 import {
+  buildSftpTransferQueue,
+  formatUploadQueueSummary,
+  isQueuedUploadTransferId,
+  rememberSftpTransfer as rememberSftpTransferQueueItem,
+  splitSftpTransferQueue,
+  type SftpUploadQueueState,
+} from "./sftpTransferQueue";
+import {
+  extractTerminalCwd,
+  formatBytes,
+  formatError,
+  joinRemotePath,
+  parentPath,
+  remoteBasename,
+  shortError,
+  transferPercent,
+} from "./layoutUtils";
+import {
   cancelSftpDownload,
   cancelSftpUpload,
   checkServerSessionHealth,
@@ -41,23 +59,6 @@ import {
 import type { RemoteFileEntry, SftpTransferItem } from "../../sftp/model/types";
 import type { MonitorState, ServerConnection } from "../../server/model/types";
 import type { TerminalInputPayload, TerminalTab } from "../../terminal/model/types";
-
-type SftpUploadQueueItem = {
-  localPath: string;
-  remotePath: string;
-  fileName: string;
-  ensureDirectories: string[];
-};
-
-type SftpUploadQueueState = {
-  cancelled: boolean;
-  completed: number;
-  current?: SftpUploadQueueItem;
-  items: SftpUploadQueueItem[];
-  running: boolean;
-  total: number;
-};
-
 type TerminalWriteQueueState = {
   items: TerminalInputPayload[];
   running: boolean;
@@ -67,20 +68,8 @@ const emptyMonitor: MonitorState = {};
 const TERMINAL_WRITE_CHUNK_SIZE = 4096;
 const TERMINAL_PASTE_CONFIRM_THRESHOLD = 20_000;
 const TERMINAL_WRITE_QUEUE_LIMIT = 2_000_000;
-const SFTP_TRANSFER_HISTORY_LIMIT = 20;
 const HEALTH_CHECK_INTERVAL_MS = 30_000;
 const HEALTH_CHECK_MIN_GAP_MS = 5_000;
-const CWD_OSC_PATTERN = /\x1b\]777;LucidShell;cwd=([^\x07\x1b]*)(?:\x07|\x1b\\)/g;
-const CWD_HOOK_ECHO_PATTERNS = [
-  /stty -echo 2>\/dev\/null\r?\n?/g,
-  /.*__lucidshell_cwd_hook.*\r?\n?/g,
-  /.*PROMPT_COMMAND.*\r?\n?/g,
-  /.*precmd_functions.*\r?\n?/g,
-  /.*add-zsh-hook.*\r?\n?/g,
-  /.*fish_prompt.*\r?\n?/g,
-  /(?:case|esac|end)\r?\n?/g,
-  /stty echo 2>\/dev\/null\r?\n?/g,
-];
 
 export const useLayoutStore = defineStore("layout", () => {
   const defaultSftpHeightRatio = 0.38;
@@ -411,20 +400,6 @@ export const useLayoutStore = defineStore("layout", () => {
     }
 
     tab.output += parsed.visibleData;
-  }
-
-  function extractTerminalCwd(data: string) {
-    let cwd: string | undefined;
-    let visibleData = data.replace(CWD_OSC_PATTERN, (_match, nextCwd: string) => {
-      cwd = nextCwd;
-      return "";
-    });
-
-    for (const pattern of CWD_HOOK_ECHO_PATTERNS) {
-      visibleData = visibleData.replace(pattern, "");
-    }
-
-    return { cwd, visibleData };
   }
 
   function handleTerminalCwdChanged(tab: TerminalTab, cwd: string) {
@@ -1980,10 +1955,9 @@ export const useLayoutStore = defineStore("layout", () => {
       return;
     }
 
-    const queuedUploadMatch = itemId.match(/^queued-upload-.+-(\d+)$/);
+    const queueIndex = isQueuedUploadTransferId(itemId);
     const queue = uploadQueues.value[tabId];
-    if (queuedUploadMatch && queue) {
-      const queueIndex = Number(queuedUploadMatch[1]);
+    if (queueIndex !== undefined && queue) {
       if (Number.isInteger(queueIndex) && queueIndex >= 0 && queueIndex < queue.items.length) {
         queue.items.splice(queueIndex, 1);
         queue.total = Math.max(queue.completed + queue.items.length + (queue.current ? 1 : 0), queue.completed);
@@ -2012,92 +1986,12 @@ export const useLayoutStore = defineStore("layout", () => {
 
   function updateSftpTransferQueue(tab: TerminalTab) {
     const queue = uploadQueues.value[tab.id];
-    const history = tab.sftp.transferQueue.filter((item) =>
-      item.status === "cancelled" || item.status === "completed" || item.status === "error",
-    );
-    const transfers: SftpTransferItem[] = [];
-
-    if (tab.sftp.activeDownloadId) {
-      transfers.push({
-        id: tab.sftp.activeDownloadId,
-        direction: "download",
-        name: tab.sftp.activeDownloadName ?? "download",
-        status: "running",
-        progress: tab.sftp.activeDownloadProgress ?? tab.sftp.transferProgress,
-        summary: tab.sftp.transferSummary,
-      });
-    }
-
-    if (tab.sftp.activeUploadId || queue?.current) {
-      transfers.push({
-        id: tab.sftp.activeUploadId ?? `upload-current-${tab.id}`,
-        direction: "upload",
-        name: tab.sftp.activeUploadName ?? queue?.current?.fileName ?? "upload",
-        status: "running",
-        progress: tab.sftp.activeUploadProgress ?? tab.sftp.transferProgress,
-        summary: queue
-          ? `${Math.min(queue.completed + 1, queue.total)}/${queue.total}`
-          : tab.sftp.transferSummary,
-      });
-    }
-
-    if (queue?.items.length) {
-      transfers.push(
-        ...queue.items.slice(0, 20).map((item, index) => ({
-          id: `queued-upload-${tab.id}-${index}`,
-          direction: "upload" as const,
-          name: item.fileName,
-          status: "queued" as const,
-          summary: "等待上传",
-        })),
-      );
-
-      if (queue.items.length > 20) {
-        transfers.push({
-          id: `queued-upload-more-${tab.id}`,
-          direction: "upload",
-          name: `还有 ${queue.items.length - 20} 项`,
-          status: "queued",
-          summary: "等待上传",
-        });
-      }
-    }
-
-    tab.sftp.transferQueue = [...transfers, ...history].slice(0, SFTP_TRANSFER_HISTORY_LIMIT);
+    const { history } = splitSftpTransferQueue(tab.sftp.transferQueue);
+    tab.sftp.transferQueue = buildSftpTransferQueue(tab.id, tab.sftp, queue, history);
   }
 
   function rememberSftpTransfer(tab: TerminalTab, transfer: SftpTransferItem) {
-    const activeTransfers = tab.sftp.transferQueue.filter((item) =>
-      item.status === "queued" || item.status === "running",
-    );
-    const history = tab.sftp.transferQueue.filter((item) =>
-      item.status === "cancelled" || item.status === "completed" || item.status === "error",
-    );
-
-    tab.sftp.transferQueue = [
-      ...activeTransfers,
-      transfer,
-      ...history.filter((item) => item.id !== transfer.id),
-    ].slice(0, SFTP_TRANSFER_HISTORY_LIMIT);
-  }
-
-  function formatUploadQueueSummary(
-    queue: SftpUploadQueueState,
-    progress: number,
-    transferredBytes?: number,
-    totalBytes?: number,
-  ) {
-    const currentIndex = Math.min(queue.completed + 1, queue.total);
-    const fileName = queue.current?.fileName ?? "file";
-    const suffix = totalBytes
-      ? `${progress}%`
-      : transferredBytes
-        ? formatBytes(transferredBytes)
-        : "0%";
-
-    return queue.total > 1
-      ? `${currentIndex}/${queue.total} ${fileName} ${suffix}`
-      : `upload ${fileName} ${suffix}`;
+    tab.sftp.transferQueue = rememberSftpTransferQueueItem(tab.sftp.transferQueue, transfer);
   }
 
   function handleSftpGoParent(tabId: string) {
@@ -2340,69 +2234,6 @@ export const useLayoutStore = defineStore("layout", () => {
         `\r\n[sftp transfer cancel failed: ${formatError(error)}]\r\n`,
       );
     }
-  }
-
-  function formatError(error: unknown) {
-    if (error instanceof Error) {
-      return error.message;
-    }
-
-    return String(error);
-  }
-
-  function shortError(error: unknown) {
-    const message = formatError(error);
-    return message.length > 42 ? `${message.slice(0, 39)}...` : message;
-  }
-
-  function parentPath(path: string) {
-    const normalized = path.replace(/\/+$/, "");
-
-    if (!normalized || normalized === "/" || normalized === ".") {
-      return ".";
-    }
-
-    const index = normalized.lastIndexOf("/");
-
-    if (index <= 0) {
-      return "/";
-    }
-
-    return normalized.slice(0, index);
-  }
-
-  function transferPercent(transferredBytes: number, totalBytes?: number) {
-    if (!totalBytes || totalBytes <= 0) {
-      return 0;
-    }
-
-    return Math.min(100, Math.floor((transferredBytes / totalBytes) * 100));
-  }
-
-  function formatBytes(bytes: number) {
-    const units = ["B", "KB", "MB", "GB", "TB"];
-    let value = bytes;
-    let unitIndex = 0;
-
-    while (value >= 1024 && unitIndex < units.length - 1) {
-      value /= 1024;
-      unitIndex += 1;
-    }
-
-    return unitIndex === 0 ? `${bytes} B` : `${value.toFixed(1)} ${units[unitIndex]}`;
-  }
-
-  function joinRemotePath(directory: string, fileName: string) {
-    if (!directory || directory === ".") {
-      return fileName;
-    }
-
-    return `${directory.replace(/\/+$/, "")}/${fileName}`;
-  }
-
-  function remoteBasename(path: string) {
-    const normalized = path.replace(/\/+$/, "");
-    return normalized.slice(normalized.lastIndexOf("/") + 1);
   }
 
   return {
