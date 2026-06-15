@@ -42,14 +42,6 @@ export const useDiagnosticsStore = defineStore("diagnostics", () => {
   const hydrated = ref(false);
 
   async function hydrateDiagnostics() {
-    const settings = useSettingsStore();
-
-    if (!settings.settings.diagnostics.enabled) {
-      entries.value = [];
-      hydrated.value = true;
-      return;
-    }
-
     if (hydrated.value || !isTauri()) {
       hydrated.value = true;
       return;

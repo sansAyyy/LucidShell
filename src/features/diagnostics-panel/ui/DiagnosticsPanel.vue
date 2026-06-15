@@ -87,26 +87,22 @@ async function clearLog() {
     <header class="diagnostics__header">
       <div>
         <h3>诊断日志</h3>
-        <small>{{ settings.settings.diagnostics.enabled ? "记录最近的连接、终端、SFTP 和凭据错误。" : "诊断日志记录当前已关闭。" }}</small>
+        <small>{{ settings.settings.diagnostics.enabled ? "记录最近的连接、终端、SFTP 和凭据错误。" : "诊断日志记录当前已关闭，历史日志仍可查看。" }}</small>
       </div>
       <div class="diagnostics__actions">
-        <button :disabled="!settings.settings.diagnostics.enabled" title="导出日志" type="button" @click="exportLog">
+        <button title="导出日志" type="button" @click="exportLog">
           <Download :size="15" />
           <span>导出</span>
         </button>
-        <button :disabled="!settings.settings.diagnostics.enabled" title="清空日志" type="button" @click="clearLog">
+        <button title="清空日志" type="button" @click="clearLog">
           <Trash2 :size="15" />
           <span>清空</span>
         </button>
       </div>
     </header>
 
-    <div v-if="!settings.settings.diagnostics.enabled" class="diagnostics__empty">
-      诊断日志记录已关闭
-    </div>
-
-    <div v-else-if="!visibleEntries.length" class="diagnostics__empty">
-      暂无诊断日志
+    <div v-if="!visibleEntries.length" class="diagnostics__empty">
+      {{ settings.settings.diagnostics.enabled ? "暂无诊断日志" : "暂无历史诊断日志" }}
     </div>
 
     <div v-else class="diagnostics__list">
