@@ -2113,6 +2113,19 @@ export const useLayoutStore = defineStore("layout", () => {
     void refreshSftpForTab(tabId, parentPath(tab.sftp.currentPath));
   }
 
+  function handleSftpGoPath(tabId: string, path: string) {
+    const tab = tabs.value.find((item) => item.id === tabId);
+
+    if (!tab || !path || path === tab.sftp.currentPath) {
+      return;
+    }
+
+    tab.sftpFollowTerminalCwd = false;
+    tab.sftpFollowTerminalCwdError = undefined;
+    tab.sftpFollowTerminalCwdStatus = "disabled";
+    void refreshSftpForTab(tabId, path);
+  }
+
   async function toggleSftpFollowTerminalCwd(tabId: string) {
     const tab = tabs.value.find((item) => item.id === tabId);
 
@@ -2412,6 +2425,7 @@ export const useLayoutStore = defineStore("layout", () => {
     handleSftpEntryOpen,
     handleSftpEditEntry,
     handleSftpGoParent,
+    handleSftpGoPath,
     handleSftpDownload,
     handleSftpCancelDownload,
     handleSftpDeleteEntry,

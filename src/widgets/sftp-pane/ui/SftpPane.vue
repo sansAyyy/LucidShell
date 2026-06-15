@@ -11,7 +11,7 @@ import {
   RefreshCw,
   X,
 } from "@lucide/vue";
-import { nextTick, ref, watch, type ComponentPublicInstance } from "vue";
+import { computed, nextTick, ref, watch, type ComponentPublicInstance } from "vue";
 import { SftpEntryContextMenu } from "../../../features/sftp-entry-menu";
 import type { SftpPaneState } from "../../../entities/sftp/model/types";
 
@@ -31,6 +31,7 @@ const emit = defineEmits<{
   "drag-active": [active: boolean];
   download: [];
   "entry-open": [entry: SftpPaneState["entries"][number]];
+  "go-path": [path: string];
   refresh: [];
   "select-entry": [entry: SftpPaneState["entries"][number]];
   "go-parent": [];
@@ -59,6 +60,7 @@ const renameInput = ref<HTMLInputElement>();
 const editingEntryPath = ref("");
 const editingEntryName = ref("");
 const activeView = ref<"files" | "queue">("files");
+const pathSegments = computed(() => buildPathSegments(props.sftp.currentPath));
 
 watch(
   [() => props.sftp.activeUploadId, () => props.sftp.transferQueue.length],
@@ -97,6 +99,41 @@ function runContextAction(action: () => void) {
 
 function showTransferQueue() {
   activeView.value = "queue";
+}
+
+function buildPathSegments(path: string) {
+  const normalizedPath = path || ".";
+
+  if (normalizedPath === ".") {
+    return [{ label: ".", path: "." }];
+  }
+
+  const isAbsolute = normalizedPath.startsWith("/");
+  const parts = normalizedPath.split("/").filter(Boolean);
+  const segments = isAbsolute
+    ? [{ label: "/", path: "/" }]
+    : [];
+
+  parts.forEach((part, index) => {
+    const path = isAbsolute
+      ? `/${parts.slice(0, index + 1).join("/")}`
+      : parts.slice(0, index + 1).join("/");
+
+    segments.push({
+      label: part,
+      path,
+    });
+  });
+
+  return segments.length ? segments : [{ label: normalizedPath, path: normalizedPath }];
+}
+
+function goPath(path: string) {
+  if (path === props.sftp.currentPath || props.sftp.loading) {
+    return;
+  }
+
+  emit("go-path", path);
 }
 
 function deleteEntry(entry: SftpPaneState["entries"][number]) {
@@ -308,7 +345,18 @@ function loadingMessage(sftp: SftpPaneState) {
     <header class="sftp-pane__header">
       <div class="sftp-pane__path">
         <span>SFTP</span>
-        <strong>{{ sftp.currentPath }}</strong>
+        <nav class="sftp-breadcrumb" aria-label="SFTP current path">
+          <button
+            v-for="(segment, index) in pathSegments"
+            :key="`${segment.path}-${index}`"
+            :disabled="sftp.loading || segment.path === sftp.currentPath"
+            :title="segment.path"
+            type="button"
+            @click="goPath(segment.path)"
+          >
+            {{ segment.label }}
+          </button>
+        </nav>
       </div>
       <div class="sftp-pane__actions">
          <button :disabled="sftp.loading" title="上级目录" type="button" @click="emit('go-parent')">
@@ -584,6 +632,47 @@ function loadingMessage(sftp: SftpPaneState) {
   gap: 10px;
   color: var(--text-muted);
   font-size: 12px;
+}
+
+.sftp-breadcrumb {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  overflow: hidden;
+}
+
+.sftp-breadcrumb button {
+  min-width: 0;
+  max-width: 180px;
+  overflow: hidden;
+  border-radius: 5px;
+  padding: 3px 5px;
+  color: var(--text-strong);
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sftp-breadcrumb button + button::before {
+  content: "/";
+  margin-right: 5px;
+  color: var(--text-subtle);
+}
+
+.sftp-breadcrumb button:hover {
+  background: var(--surface-hover);
+}
+
+.sftp-breadcrumb button:disabled {
+  color: var(--text-strong);
+  cursor: default;
+}
+
+.sftp-breadcrumb button:disabled:hover {
+  background: transparent;
 }
 
 .sftp-pane__path strong {

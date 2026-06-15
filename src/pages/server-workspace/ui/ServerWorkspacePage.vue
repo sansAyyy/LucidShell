@@ -190,6 +190,7 @@ function openSettingsFromFollowConfirm() {
         @sftp-entry-open="layout.handleSftpEntryOpen"
         @sftp-entry-rename="layout.handleSftpRenameEntry"
         @sftp-go-parent="layout.handleSftpGoParent"
+        @sftp-go-path="layout.handleSftpGoPath"
         @sftp-new-folder="layout.handleSftpNewFolder"
         @sftp-refresh="layout.refreshSftpForTab"
         @sftp-remove-transfer-item="layout.removeSftpTransferItem"
