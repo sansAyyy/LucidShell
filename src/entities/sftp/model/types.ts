@@ -8,6 +8,13 @@ export type RemoteFileEntry = {
   mode: string;
 };
 
+export type SftpUploadRetryPayload = {
+  localPath: string;
+  remotePath: string;
+  fileName: string;
+  ensureDirectories: string[];
+};
+
 export type SftpTransferItem = {
   id: string;
   direction: "upload" | "download";
@@ -15,6 +22,8 @@ export type SftpTransferItem = {
   status: "cancelled" | "completed" | "error" | "queued" | "running";
   progress?: number;
   summary?: string;
+  retryable?: boolean;
+  retryPayload?: SftpUploadRetryPayload;
 };
 
 export type SftpPaneState = {

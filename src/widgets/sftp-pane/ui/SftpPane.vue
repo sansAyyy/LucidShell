@@ -9,6 +9,7 @@ import {
   Folder,
   FolderPlus,
   RefreshCw,
+  RotateCcw,
   X,
 } from "@lucide/vue";
 import { computed, nextTick, ref, watch, type ComponentPublicInstance } from "vue";
@@ -41,6 +42,7 @@ const emit = defineEmits<{
   "entry-context-edit": [entry: SftpPaneState["entries"][number]];
   "entry-context-rename": [entry: SftpPaneState["entries"][number], name: string];
   "remove-transfer-item": [itemId: string];
+  "retry-transfer-item": [itemId: string];
   "toggle-collapse": [];
   "toggle-follow-cwd": [];
   upload: [];
@@ -182,6 +184,14 @@ function removeTransferItem(item: SftpPaneState["transferQueue"][number]) {
   }
 
   emit("remove-transfer-item", item.id);
+}
+
+function retryTransferItem(item: SftpPaneState["transferQueue"][number]) {
+  if (!item.retryable) {
+    return;
+  }
+
+  emit("retry-transfer-item", item.id);
 }
 
 function clearTransferQueue() {
@@ -519,6 +529,14 @@ function loadingMessage(sftp: SftpPaneState) {
           <span class="transfer-item__progress">
             <span :style="{ width: `${item.progress ?? 0}%` }" />
           </span>
+          <button
+            v-if="item.retryable"
+            title="重试任务"
+            type="button"
+            @click.stop="retryTransferItem(item)"
+          >
+            <RotateCcw :size="14" />
+          </button>
           <button
             :title="item.status === 'running' ? '取消任务' : '从队列移除'"
             type="button"

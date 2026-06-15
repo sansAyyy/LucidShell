@@ -11,9 +11,9 @@ import { useDiagnosticsStore, type DiagnosticScope } from "../../diagnostics/mod
 import {
   buildSftpTransferQueue,
   formatUploadQueueSummary,
-  isQueuedUploadTransferId,
   rememberSftpTransfer as rememberSftpTransferQueueItem,
   splitSftpTransferQueue,
+  type SftpUploadQueueItem,
   type SftpUploadQueueState,
 } from "./sftpTransferQueue";
 import {
@@ -56,7 +56,7 @@ import {
   type TerminalClosedEvent,
   type TerminalOutputEvent,
 } from "../../../shared/api/tauri";
-import type { RemoteFileEntry, SftpTransferItem } from "../../sftp/model/types";
+import type { RemoteFileEntry, SftpTransferItem, SftpUploadRetryPayload } from "../../sftp/model/types";
 import type { MonitorState, ServerConnection } from "../../server/model/types";
 import type { TerminalInputPayload, TerminalTab } from "../../terminal/model/types";
 type TerminalWriteQueueState = {
@@ -1498,6 +1498,7 @@ export const useLayoutStore = defineStore("layout", () => {
       });
       const pendingDirectories = [...preparedQueue.directories];
       const items = preparedQueue.files.map((file, index) => ({
+        id: createUploadQueueItemId(tab.id),
         fileName: file.fileName,
         localPath: file.localPath,
         remotePath: file.remotePath,
@@ -1585,12 +1586,12 @@ export const useLayoutStore = defineStore("layout", () => {
         remotePath: item.remotePath,
         transferId,
       });
-      resetUploadQueueState(tab, "upload error");
-      removeUploadQueue(tab.id);
+      completeCurrentUpload(tab, "error", formatError(error));
       queue.running = false;
       queue.current = undefined;
       tab.status = "warning";
       tab.output += `\r\n[sftp upload failed: ${formatError(error)}]\r\n`;
+      void runNextSftpUpload(tab.id);
     }
   }
 
@@ -1790,8 +1791,7 @@ export const useLayoutStore = defineStore("layout", () => {
       return;
     }
 
-    completeCurrentUpload(tab, "error");
-    removeUploadQueue(tab.id);
+    completeCurrentUpload(tab, "error", event.error);
     tab.status = "warning";
     recordTabDiagnostic("sftp", tab, "SFTP 上传任务失败", {
       error: event.error,
@@ -1799,6 +1799,7 @@ export const useLayoutStore = defineStore("layout", () => {
       transferId: event.transferId,
     });
     tab.output += `\r\n[sftp upload failed${event.error ? `: ${event.error}` : ""}]\r\n`;
+    void runNextSftpUpload(tab.id);
   }
 
   function handleLocalEditSync(event: LocalEditSyncEvent) {
@@ -1832,6 +1833,11 @@ export const useLayoutStore = defineStore("layout", () => {
     const existingQueue = uploadQueues.value[tabId];
 
     if (existingQueue) {
+      if (!existingQueue.cancelled) {
+        return existingQueue;
+      }
+
+      existingQueue.cancelled = false;
       return existingQueue;
     }
 
@@ -1847,6 +1853,23 @@ export const useLayoutStore = defineStore("layout", () => {
       [tabId]: queue,
     };
     return queue;
+  }
+
+  function createUploadQueueItemId(tabId: string) {
+    return `queued-upload-${tabId}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+
+  function createUploadQueueItemFromRetryPayload(
+    tabId: string,
+    payload: SftpUploadRetryPayload,
+  ): SftpUploadQueueItem {
+    return {
+      id: createUploadQueueItemId(tabId),
+      localPath: payload.localPath,
+      remotePath: payload.remotePath,
+      fileName: payload.fileName,
+      ensureDirectories: [...payload.ensureDirectories],
+    };
   }
 
   async function ensureRemoteDirectories(tab: TerminalTab, directories: string[]) {
@@ -1880,10 +1903,22 @@ export const useLayoutStore = defineStore("layout", () => {
     uploadQueues.value = rest;
   }
 
-  function completeCurrentUpload(tab: TerminalTab, status: "cancelled" | "completed" | "error") {
+  function completeCurrentUpload(
+    tab: TerminalTab,
+    status: "cancelled" | "completed" | "error",
+    errorMessage?: string,
+  ) {
     const queue = uploadQueues.value[tab.id];
     const transferId = tab.sftp.activeUploadId ?? `upload-${tab.id}-${Date.now()}`;
     const transferName = tab.sftp.activeUploadName ?? queue?.current?.fileName ?? "upload";
+    const retryPayload = queue?.current
+      ? {
+          localPath: queue.current.localPath,
+          remotePath: queue.current.remotePath,
+          fileName: queue.current.fileName,
+          ensureDirectories: [...queue.current.ensureDirectories],
+        }
+      : undefined;
 
     if (queue?.current) {
       queue.completed += status === "completed" ? 1 : 0;
@@ -1905,7 +1940,15 @@ export const useLayoutStore = defineStore("layout", () => {
       name: transferName,
       status,
       progress: status === "completed" ? 100 : 0,
-      summary: status === "completed" ? "已完成" : status === "cancelled" ? "已取消" : "上传失败",
+      summary: status === "completed"
+        ? "已完成"
+        : status === "cancelled"
+          ? "已取消"
+          : errorMessage
+            ? shortError(errorMessage)
+            : "上传失败",
+      retryable: status === "error",
+      retryPayload: retryPayload,
     });
 
     if (status === "completed" && queue && queue.items.length > 0) {
@@ -1920,7 +1963,16 @@ export const useLayoutStore = defineStore("layout", () => {
       return;
     }
 
-    resetUploadQueueState(tab, status === "cancelled" ? "cancelled" : "upload error");
+    if (status === "error" && queue) {
+      tab.sftp.uploadQueueCompleted = queue.completed;
+      tab.sftp.uploadQueuePending = queue.items.length;
+      tab.sftp.uploadQueueTotal = queue.total;
+      tab.sftp.transferSummary = queue.items.length ? `queued ${queue.items.length}` : "upload error";
+      updateSftpTransferQueue(tab);
+      return;
+    }
+
+    resetUploadQueueState(tab, "cancelled");
   }
 
   function showSftpTransferQueue(tab: TerminalTab) {
@@ -1955,21 +2007,58 @@ export const useLayoutStore = defineStore("layout", () => {
       return;
     }
 
-    const queueIndex = isQueuedUploadTransferId(itemId);
     const queue = uploadQueues.value[tabId];
-    if (queueIndex !== undefined && queue) {
-      if (Number.isInteger(queueIndex) && queueIndex >= 0 && queueIndex < queue.items.length) {
-        queue.items.splice(queueIndex, 1);
-        queue.total = Math.max(queue.completed + queue.items.length + (queue.current ? 1 : 0), queue.completed);
-        tab.sftp.uploadQueuePending = queue.items.length;
-        tab.sftp.uploadQueueTotal = queue.total;
+    const queueItemIndex = queue?.items.findIndex((item) => item.id === itemId) ?? -1;
+
+    if (queue && queueItemIndex >= 0) {
+      queue.items.splice(queueItemIndex, 1);
+      queue.total = Math.max(queue.completed + queue.items.length + (queue.current ? 1 : 0), queue.completed);
+      tab.sftp.uploadQueuePending = queue.items.length;
+      tab.sftp.uploadQueueTotal = queue.total;
+    }
+
+    const transferItem = tab.sftp.transferQueue.find((item) => item.id === itemId);
+    if (transferItem?.status === "running") {
+      if (transferItem.direction === "download") {
+        void handleSftpCancelDownload(tabId);
+      } else {
+        void handleSftpCancelUpload(tabId);
       }
+      return;
     }
 
     tab.sftp.transferQueue = tab.sftp.transferQueue.filter((item) =>
       item.status === "running" || item.id !== itemId,
     );
     updateSftpTransferQueue(tab);
+  }
+
+  function retrySftpTransferItem(tabId: string, itemId: string) {
+    const tab = tabs.value.find((item) => item.id === tabId);
+
+    if (!tab) {
+      return;
+    }
+
+    const transferItem = tab.sftp.transferQueue.find((item) => item.id === itemId);
+    const retryPayload = transferItem?.retryPayload;
+
+    if (!retryPayload) {
+      return;
+    }
+
+    const queue = getOrCreateUploadQueue(tab.id);
+    queue.cancelled = false;
+    queue.items.unshift(createUploadQueueItemFromRetryPayload(tab.id, retryPayload));
+    queue.total = Math.max(queue.total, queue.completed + queue.items.length + (queue.current ? 1 : 0));
+    tab.sftp.uploadQueuePending = queue.items.length;
+    tab.sftp.uploadQueueTotal = queue.total;
+    tab.sftp.transferSummary = queue.running ? `queued ${queue.items.length}` : `retrying ${retryPayload.fileName}`;
+    updateSftpTransferQueue(tab);
+
+    if (!queue.running) {
+      void runNextSftpUpload(tab.id);
+    }
   }
 
   function resetUploadQueueState(tab: TerminalTab, summary = "idle") {
@@ -2290,5 +2379,6 @@ export const useLayoutStore = defineStore("layout", () => {
     toggleSftp,
     toggleSftpForTab,
     toggleSidebar,
+    retrySftpTransferItem,
   };
 });

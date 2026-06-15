@@ -194,6 +194,7 @@ function openSettingsFromFollowConfirm() {
         @sftp-new-folder="layout.handleSftpNewFolder"
         @sftp-refresh="layout.refreshSftpForTab"
         @sftp-remove-transfer-item="layout.removeSftpTransferItem"
+        @sftp-retry-transfer-item="layout.retrySftpTransferItem"
         @sftp-select-entry="layout.handleSftpSelectEntry"
         @sftp-toggle-follow-cwd="requestToggleSftpFollowCwd"
         @sftp-upload="layout.handleSftpUpload"

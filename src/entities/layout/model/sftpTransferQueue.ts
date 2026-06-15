@@ -2,6 +2,7 @@ import type { SftpTransferItem } from "../../sftp/model/types";
 import { formatBytes } from "./layoutUtils";
 
 export type SftpUploadQueueItem = {
+  id: string;
   localPath: string;
   remotePath: string;
   fileName: string;
@@ -18,14 +19,13 @@ export type SftpUploadQueueState = {
 };
 
 const SFTP_TRANSFER_HISTORY_LIMIT = 20;
+const SFTP_QUEUED_UPLOAD_LIMIT = 20;
 
 export function createQueuedUploadTransfer(
-  tabId: string,
   item: SftpUploadQueueItem,
-  index: number,
 ): SftpTransferItem {
   return {
-    id: `queued-upload-${tabId}-${index}`,
+    id: item.id,
     direction: "upload",
     name: item.fileName,
     status: "queued",
@@ -76,14 +76,16 @@ export function buildSftpTransferQueue(
 
   if (queue?.items.length) {
     transfers.push(
-      ...queue.items.slice(0, 20).map((item, index) => createQueuedUploadTransfer(tabId, item, index)),
+      ...queue.items
+        .slice(0, SFTP_QUEUED_UPLOAD_LIMIT)
+        .map((item) => createQueuedUploadTransfer(item)),
     );
 
-    if (queue.items.length > 20) {
+    if (queue.items.length > SFTP_QUEUED_UPLOAD_LIMIT) {
       transfers.push({
         id: `queued-upload-more-${tabId}`,
         direction: "upload",
-        name: `还有 ${queue.items.length - 20} 项`,
+        name: `还有 ${queue.items.length - SFTP_QUEUED_UPLOAD_LIMIT} 项`,
         status: "queued",
         summary: "等待上传",
       });
@@ -116,11 +118,6 @@ export function splitSftpTransferQueue(currentQueue: SftpTransferItem[]) {
       item.status === "cancelled" || item.status === "completed" || item.status === "error",
     ),
   };
-}
-
-export function isQueuedUploadTransferId(itemId: string) {
-  const match = itemId.match(/^queued-upload-.+-(\d+)$/);
-  return match ? Number(match[1]) : undefined;
 }
 
 export function formatUploadQueueSummary(
