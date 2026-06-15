@@ -311,6 +311,9 @@ function loadingMessage(sftp: SftpPaneState) {
         <strong>{{ sftp.currentPath }}</strong>
       </div>
       <div class="sftp-pane__actions">
+         <button :disabled="sftp.loading" title="上级目录" type="button" @click="emit('go-parent')">
+          ..
+        </button>
         <button
           v-if="sftp.activeUploadId"
           title="取消上传队列"
@@ -349,9 +352,6 @@ function loadingMessage(sftp: SftpPaneState) {
         >
           <Link v-if="followTerminalCwd" :size="16" />
           <Link2Off v-else :size="16" />
-        </button>
-        <button :disabled="sftp.loading" title="上级目录" type="button" @click="emit('go-parent')">
-          ..
         </button>
         <button :disabled="sftp.loading" title="刷新" type="button" @click="emit('refresh')">
           <RefreshCw :size="16" />
