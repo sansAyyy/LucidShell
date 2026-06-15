@@ -11,7 +11,7 @@ import {
   RefreshCw,
   X,
 } from "@lucide/vue";
-import { nextTick, ref, watch } from "vue";
+import { nextTick, ref, watch, type ComponentPublicInstance } from "vue";
 import { SftpEntryContextMenu } from "../../../features/sftp-entry-menu";
 import type { SftpPaneState } from "../../../entities/sftp/model/types";
 
@@ -169,9 +169,17 @@ function beginRenameEntry(entry: SftpPaneState["entries"][number]) {
   editingEntryName.value = entry.name;
 
   void nextTick(() => {
-    renameInput.value?.focus();
-    renameInput.value?.select();
+    focusRenameInput();
   });
+}
+
+function setRenameInput(element: Element | ComponentPublicInstance | null) {
+  renameInput.value = element instanceof HTMLInputElement ? element : undefined;
+}
+
+function focusRenameInput() {
+  renameInput.value?.focus();
+  renameInput.value?.select();
 }
 
 function commitEntryRename(entry: SftpPaneState["entries"][number]) {
@@ -408,7 +416,7 @@ function loadingMessage(sftp: SftpPaneState) {
           <File v-else :size="16" />
           <input
             v-if="editingEntryPath === entry.path"
-            ref="renameInput"
+            :ref="setRenameInput"
             v-model="editingEntryName"
             class="file-table__rename-input"
             @blur="commitEntryRename(entry)"

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ChevronUp, PanelBottomClose, RotateCcw, X } from "@lucide/vue";
-import { computed, nextTick, ref } from "vue";
+import { computed, nextTick, ref, type ComponentPublicInstance } from "vue";
 import TerminalView from "../../../entities/terminal/ui/TerminalView.vue";
 import SftpPane from "../../sftp-pane/ui/SftpPane.vue";
 import { TerminalTabContextMenu } from "../../../features/terminal-tab-menu";
@@ -115,9 +115,17 @@ function beginRenameTab(tab: TerminalTab) {
   editingTabTitle.value = tab.title;
 
   void nextTick(() => {
-    tabRenameInput.value?.focus();
-    tabRenameInput.value?.select();
+    focusTabRenameInput();
   });
+}
+
+function setTabRenameInput(element: Element | ComponentPublicInstance | null) {
+  tabRenameInput.value = element instanceof HTMLInputElement ? element : undefined;
+}
+
+function focusTabRenameInput() {
+  tabRenameInput.value?.focus();
+  tabRenameInput.value?.select();
 }
 
 function commitTabRename(tab: TerminalTab) {
@@ -241,7 +249,7 @@ function startSplitResize(event: PointerEvent) {
         <span class="tab__status" />
         <input
           v-if="editingTabId === tab.id"
-          ref="tabRenameInput"
+          :ref="setTabRenameInput"
           v-model="editingTabTitle"
           class="tab__rename-input"
           @blur="commitTabRename(tab)"
