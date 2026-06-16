@@ -36,6 +36,7 @@ function asPort(value: unknown) {
 function asStatus(value: unknown): ServerStatus {
   return value === "connected" ||
     value === "connecting" ||
+    value === "reconnecting" ||
     value === "disconnecting" ||
     value === "disconnected" ||
     value === "error"

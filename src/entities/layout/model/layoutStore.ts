@@ -285,6 +285,7 @@ export const useLayoutStore = defineStore("layout", () => {
 
     await cancelTabTransfers(tab);
     clearTerminalWriteQueue(tab.id);
+    tab.status = "reconnecting";
 
     if (tab.terminalSessionId && isTauri()) {
       try {
@@ -300,6 +301,7 @@ export const useLayoutStore = defineStore("layout", () => {
     }
 
     resetTabConnectionState(tab, { clearOutput: true });
+    tab.status = "reconnecting";
 
     activeTabId.value = tab.id;
     void ensureTerminalForTab(tab.id);
@@ -455,13 +457,13 @@ export const useLayoutStore = defineStore("layout", () => {
 
   function markTabDisconnected(tab: TerminalTab, reason: string) {
     if (tab.reconnectOnInput) {
-      tab.status = tab.status === "error" ? "error" : "warning";
+      tab.status = tab.status === "error" ? "error" : "reconnecting";
       return;
     }
 
     clearTerminalWriteQueue(tab.id);
     resetTabConnectionState(tab, { clearOutput: false });
-    tab.status = "warning";
+    tab.status = "reconnecting";
     tab.reconnectOnInput = true;
     tab.output += reconnectPrompt(reason);
   }
@@ -728,7 +730,12 @@ export const useLayoutStore = defineStore("layout", () => {
   }
 
   function mapServerSessionStatus(status: ConnectionStatusChangedEvent["status"]): ServerConnection["status"] {
-    if (status === "connected" || status === "connecting" || status === "disconnecting" || status === "error") {
+    if (
+      status === "connected"
+      || status === "connecting"
+      || status === "disconnecting"
+      || status === "error"
+    ) {
       return status;
     }
 
@@ -741,7 +748,7 @@ export const useLayoutStore = defineStore("layout", () => {
     status: ServerConnection["status"],
     error?: string,
   ) {
-    if (status === "connected" || status === "connecting") {
+    if (status === "connected" || status === "connecting" || status === "reconnecting") {
       return;
     }
 
@@ -749,7 +756,7 @@ export const useLayoutStore = defineStore("layout", () => {
       .filter((tab) => tab.serverProfileId === profileId || tab.serverSessionId === sessionId)
       .forEach((tab) => {
         if (tab.reconnectOnInput) {
-          tab.status = status === "error" ? "error" : "warning";
+          tab.status = status === "error" ? "error" : "reconnecting";
           return;
         }
 
@@ -792,7 +799,8 @@ export const useLayoutStore = defineStore("layout", () => {
       return;
     }
 
-    tab.status = "active";
+    const isReconnect = tab.status === "reconnecting" || tab.reconnectOnInput;
+    tab.status = isReconnect ? "reconnecting" : "active";
     tab.reconnectOnInput = false;
     tab.output = "";
 
@@ -824,7 +832,9 @@ export const useLayoutStore = defineStore("layout", () => {
       return;
     }
 
-    serverStore.setServerStatus(server.id, "connecting", { lastError: undefined });
+    serverStore.setServerStatus(server.id, isReconnect ? "reconnecting" : "connecting", {
+      lastError: undefined,
+    });
 
     try {
       const serverSession =
@@ -953,6 +963,7 @@ export const useLayoutStore = defineStore("layout", () => {
     const tab = tabs.value.find((item) => item.id === pending.tabId);
     if (tab) {
       resetTabConnectionState(tab, { clearOutput: true });
+      tab.status = "reconnecting";
       tab.output = "[reconnecting with trusted host key...]\r\n";
       void ensureTerminalForTab(tab.id);
     }
@@ -968,6 +979,7 @@ export const useLayoutStore = defineStore("layout", () => {
 
     if (tab.reconnectOnInput) {
       resetTabConnectionState(tab, { clearOutput: true });
+      tab.status = "reconnecting";
       tab.output = "[reconnecting...]\r\n";
       void ensureTerminalForTab(tabId);
       return;

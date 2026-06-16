@@ -9,7 +9,7 @@ export type TerminalTab = {
   id: string;
   title: string;
   cwd: string;
-  status: "active" | "idle" | "warning" | "error";
+  status: "active" | "idle" | "warning" | "reconnecting" | "error";
   serverProfileId?: string;
   serverSessionId?: string;
   terminalSessionId?: string;

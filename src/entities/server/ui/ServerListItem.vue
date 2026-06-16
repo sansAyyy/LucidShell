@@ -15,6 +15,7 @@ function statusLabel(status: ServerConnection["status"]) {
   const labels: Record<ServerConnection["status"], string> = {
     connected: "已连接",
     connecting: "连接中",
+    reconnecting: "重连中",
     disconnecting: "断开中",
     disconnected: "未连接",
     error: "连接失败",
@@ -40,6 +41,7 @@ function statusLabel(status: ServerConnection["status"]) {
     </span>
     <span v-if="server.status === 'error'" class="server-item__status-text">失败</span>
     <span v-else-if="server.status === 'connecting'" class="server-item__status-text">连接中</span>
+    <span v-else-if="server.status === 'reconnecting'" class="server-item__status-text">重连中</span>
     <span v-else-if="server.status === 'disconnecting'" class="server-item__status-text">断开中</span>
     <span v-else-if="server.latencyMs" class="server-item__latency">{{ server.latencyMs }}ms</span>
   </button>
@@ -80,6 +82,10 @@ function statusLabel(status: ServerConnection["status"]) {
 
 .status-dot--connecting {
   background: var(--warning);
+}
+
+.status-dot--reconnecting {
+  background: var(--accent);
 }
 
 .status-dot--disconnecting {

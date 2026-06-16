@@ -239,6 +239,7 @@ function startSplitResize(event: PointerEvent) {
         :class="{
           'tab--active': tab.id === activeTabId,
           'tab--error': tab.status === 'error',
+          'tab--reconnecting': tab.status === 'reconnecting',
           'tab--warning': tab.status === 'warning'
         }"
         role="button"
@@ -460,6 +461,10 @@ function startSplitResize(event: PointerEvent) {
 
 .tab--warning .tab__status {
   background: var(--warning);
+}
+
+.tab--reconnecting .tab__status {
+  background: var(--accent);
 }
 
 .tab--error .tab__status {

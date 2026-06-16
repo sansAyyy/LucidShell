@@ -1,4 +1,10 @@
-export type ServerStatus = "connected" | "connecting" | "disconnecting" | "disconnected" | "error";
+export type ServerStatus =
+  | "connected"
+  | "connecting"
+  | "reconnecting"
+  | "disconnecting"
+  | "disconnected"
+  | "error";
 
 export type CredentialStorage = "none" | "plain" | "keychain";
 

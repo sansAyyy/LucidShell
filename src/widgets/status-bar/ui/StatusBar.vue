@@ -8,6 +8,19 @@ defineProps<{
   tab?: TerminalTab;
 }>();
 
+function serverStatusLabel(status?: ServerConnection["status"]) {
+  const labels: Record<NonNullable<ServerConnection["status"]>, string> = {
+    connected: "已连接",
+    connecting: "连接中",
+    reconnecting: "重连中",
+    disconnecting: "断开中",
+    disconnected: "未连接",
+    error: "连接失败",
+  };
+
+  return status ? labels[status] : "未连接";
+}
+
 function percent(value?: number) {
   return typeof value === "number" ? `${value}%` : "--";
 }
@@ -17,7 +30,7 @@ function percent(value?: number) {
   <footer class="statusbar">
     <span>{{ server ? server.name : "未连接" }}</span>
     <span v-if="server">{{ server.user }}@{{ server.host }}</span>
-    <span v-if="server">{{ server.status }}</span>
+    <span v-if="server">{{ serverStatusLabel(server.status) }}</span>
     <span v-if="server?.latencyMs">{{ server.latencyMs }}ms</span>
     <span>CPU {{ percent(monitor.cpu) }}</span>
     <span>MEM {{ percent(monitor.memory) }}</span>

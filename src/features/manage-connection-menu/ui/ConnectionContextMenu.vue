@@ -75,15 +75,20 @@ function updateSubmenuPosition() {
         :style="{ left: `${menuPosition.left}px`, top: `${menuPosition.top}px` }"
         @click.stop
       >
-        <div class="context-menu__title">{{ server.name }}</div>
-        <button
-          v-if="server.status === 'connected' || server.status === 'connecting' || server.status === 'disconnecting'"
-          type="button"
-          :disabled="server.status === 'disconnecting'"
-          @click="emit('disconnect', server.id)"
-        >
-          断开连接
-        </button>
+      <div class="context-menu__title">{{ server.name }}</div>
+      <button
+        v-if="
+          server.status === 'connected'
+          || server.status === 'connecting'
+          || server.status === 'reconnecting'
+          || server.status === 'disconnecting'
+        "
+        type="button"
+        :disabled="server.status === 'disconnecting' || server.status === 'reconnecting'"
+        @click="emit('disconnect', server.id)"
+      >
+        {{ server.status === 'reconnecting' ? '重连中' : '断开连接' }}
+      </button>
         <button v-else-if="server.status === 'error'" type="button" @click="emit('retry', server.id)">
           重新连接
         </button>

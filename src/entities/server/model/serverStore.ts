@@ -83,7 +83,10 @@ export const useServerStore = defineStore("server", () => {
       version: 2,
       activeServerId: activeServerId.value,
       groups: groups.value,
-      servers: servers.value,
+      servers: servers.value.map((server) => ({
+        ...server,
+        status: "disconnected",
+      })),
     };
   }
 
