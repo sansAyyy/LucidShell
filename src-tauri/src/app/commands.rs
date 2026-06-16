@@ -686,15 +686,11 @@ pub async fn cancel_sftp_download(
     state: State<'_, AppState>,
     payload: CancelSftpDownloadPayload,
 ) -> Result<(), String> {
-    if state
+    let _ = state
         .transfer_registry
         .cancel_download(&payload.transfer_id)
-        .await
-    {
-        Ok(())
-    } else {
-        Err("download transfer not found".to_string())
-    }
+        .await;
+    Ok(())
 }
 
 #[tauri::command]
@@ -844,15 +840,11 @@ pub async fn cancel_sftp_upload(
     state: State<'_, AppState>,
     payload: CancelSftpUploadPayload,
 ) -> Result<(), String> {
-    if state
+    let _ = state
         .transfer_registry
         .cancel_upload(&payload.transfer_id)
-        .await
-    {
-        Ok(())
-    } else {
-        Err("upload transfer not found".to_string())
-    }
+        .await;
+    Ok(())
 }
 
 #[tauri::command]
