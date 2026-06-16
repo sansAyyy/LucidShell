@@ -179,3 +179,107 @@ async fn cancel_all_transfers(transfers: &Mutex<HashMap<String, TransferHandle>>
 
     cancelled
 }
+
+#[cfg(test)]
+mod tests {
+    use super::TransferRegistry;
+
+    async fn transfer_counts(registry: &TransferRegistry) -> (usize, usize) {
+        let downloads = registry.downloads.lock().await.len();
+        let uploads = registry.uploads.lock().await.len();
+        (downloads, uploads)
+    }
+
+    #[tokio::test]
+    async fn cancel_download_is_idempotent() {
+        let registry = TransferRegistry::default();
+        let token = registry
+            .register_download("download-1".to_string(), "session-1".to_string())
+            .await;
+
+        assert!(registry.cancel_download("download-1").await);
+        assert!(token.is_cancelled());
+        assert!(!registry.cancel_download("download-1").await);
+        assert_eq!(transfer_counts(&registry).await, (0, 0));
+    }
+
+    #[tokio::test]
+    async fn completed_download_is_removed() {
+        let registry = TransferRegistry::default();
+        let token = registry
+            .register_download("download-1".to_string(), "session-1".to_string())
+            .await;
+
+        registry.complete_download("download-1").await;
+
+        assert!(!token.is_cancelled());
+        assert!(!registry.cancel_download("download-1").await);
+        assert_eq!(transfer_counts(&registry).await, (0, 0));
+    }
+
+    #[tokio::test]
+    async fn cancel_session_only_cancels_matching_transfers() {
+        let registry = TransferRegistry::default();
+        let download_a = registry
+            .register_download("download-a".to_string(), "session-a".to_string())
+            .await;
+        let upload_a = registry
+            .register_upload("upload-a".to_string(), "session-a".to_string())
+            .await;
+        let download_b = registry
+            .register_download("download-b".to_string(), "session-b".to_string())
+            .await;
+
+        assert_eq!(registry.cancel_session("session-a").await, 2);
+        assert!(download_a.is_cancelled());
+        assert!(upload_a.is_cancelled());
+        assert!(!download_b.is_cancelled());
+        assert_eq!(transfer_counts(&registry).await, (1, 0));
+        assert!(registry.cancel_download("download-b").await);
+    }
+
+    #[tokio::test]
+    async fn cancel_all_clears_uploads_and_downloads() {
+        let registry = TransferRegistry::default();
+        let download = registry
+            .register_download("download-1".to_string(), "session-1".to_string())
+            .await;
+        let upload = registry
+            .register_upload("upload-1".to_string(), "session-2".to_string())
+            .await;
+
+        assert_eq!(registry.cancel_all().await, 2);
+        assert!(download.is_cancelled());
+        assert!(upload.is_cancelled());
+        assert_eq!(transfer_counts(&registry).await, (0, 0));
+    }
+
+    #[tokio::test]
+    async fn guard_cleans_up_when_not_disarmed() {
+        let registry = TransferRegistry::default();
+        let _token = registry
+            .register_download("download-1".to_string(), "session-1".to_string())
+            .await;
+        let guard = registry.download_guard("download-1".to_string());
+
+        drop(guard);
+        tokio::task::yield_now().await;
+
+        assert_eq!(transfer_counts(&registry).await, (0, 0));
+    }
+
+    #[tokio::test]
+    async fn disarmed_guard_leaves_transfer_registered() {
+        let registry = TransferRegistry::default();
+        let _token = registry
+            .register_upload("upload-1".to_string(), "session-1".to_string())
+            .await;
+        let guard = registry.upload_guard("upload-1".to_string());
+
+        guard.disarm();
+        tokio::task::yield_now().await;
+
+        assert_eq!(transfer_counts(&registry).await, (0, 1));
+        assert!(registry.cancel_upload("upload-1").await);
+    }
+}
