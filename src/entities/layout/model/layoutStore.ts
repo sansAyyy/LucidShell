@@ -761,6 +761,10 @@ export const useLayoutStore = defineStore("layout", () => {
     tabs.value
       .filter((tab) => tab.serverProfileId === profileId || tab.serverSessionId === sessionId)
       .forEach((tab) => {
+        if (status === "error" && !tab.terminalSessionId && (tab.status === "active" || tab.status === "reconnecting")) {
+          return;
+        }
+
         if (tab.reconnectOnInput) {
           tab.status = status === "error" ? "error" : "reconnecting";
           return;
