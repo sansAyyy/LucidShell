@@ -476,6 +476,9 @@ pub async fn download_sftp_file(
         .transfer_registry
         .register_download(payload.transfer_id.clone())
         .await;
+    let transfer_guard = state
+        .transfer_registry
+        .download_guard(payload.transfer_id.clone());
     let sftp = {
         let mut session_manager = state.session_manager.lock().await;
         session_manager
@@ -555,6 +558,7 @@ pub async fn download_sftp_file(
             .complete_download(&task_transfer_id)
             .await;
     });
+    transfer_guard.disarm();
 
     Ok(transfer_id)
 }
@@ -569,6 +573,9 @@ pub async fn download_sftp_directory(
         .transfer_registry
         .register_download(payload.transfer_id.clone())
         .await;
+    let transfer_guard = state
+        .transfer_registry
+        .download_guard(payload.transfer_id.clone());
     let sftp = {
         let mut session_manager = state.session_manager.lock().await;
         session_manager
@@ -669,6 +676,7 @@ pub async fn download_sftp_directory(
             .complete_download(&task_transfer_id)
             .await;
     });
+    transfer_guard.disarm();
 
     Ok(transfer_id)
 }
@@ -699,6 +707,9 @@ pub async fn upload_sftp_file(
         .transfer_registry
         .register_upload(payload.transfer_id.clone())
         .await;
+    let transfer_guard = state
+        .transfer_registry
+        .upload_guard(payload.transfer_id.clone());
     let sftp = {
         let mut session_manager = state.session_manager.lock().await;
         session_manager
@@ -778,6 +789,7 @@ pub async fn upload_sftp_file(
             .complete_upload(&task_transfer_id)
             .await;
     });
+    transfer_guard.disarm();
 
     Ok(transfer_id)
 }
