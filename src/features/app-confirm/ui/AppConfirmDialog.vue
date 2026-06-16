@@ -1,7 +1,46 @@
 <script setup lang="ts">
+import { nextTick, ref, watch } from "vue";
 import { useNotificationStore } from "../../../entities/notification/model/notificationStore";
 
 const notification = useNotificationStore();
+const inputValue = ref("");
+const inputError = ref("");
+const inputElement = ref<HTMLInputElement>();
+
+watch(
+  () => notification.activeTextInput?.id,
+  () => {
+    const request = notification.activeTextInput;
+    inputValue.value = request?.initialValue ?? "";
+    inputError.value = "";
+
+    if (request) {
+      void nextTick(() => inputElement.value?.focus());
+    }
+  },
+);
+
+function cancelTextInput() {
+  notification.resolveTextInput(undefined);
+}
+
+function submitTextInput() {
+  const request = notification.activeTextInput;
+
+  if (!request) {
+    return;
+  }
+
+  const value = inputValue.value.trim();
+  const error = request.validate?.(value);
+
+  if (error) {
+    inputError.value = error;
+    return;
+  }
+
+  notification.resolveTextInput(value);
+}
 </script>
 
 <template>
@@ -51,6 +90,40 @@ const notification = useNotificationStore();
         </footer>
       </section>
     </div>
+    <div
+      v-if="notification.activeTextInput"
+      class="confirm-layer"
+      @click.self="cancelTextInput"
+    >
+      <section class="confirm-dialog" role="dialog" aria-modal="true">
+        <header>
+          <h2>{{ notification.activeTextInput.title }}</h2>
+        </header>
+        <form class="confirm-dialog__form" @submit.prevent="submitTextInput">
+          <p v-if="notification.activeTextInput.message">{{ notification.activeTextInput.message }}</p>
+          <label>
+            <span>{{ notification.activeTextInput.label }}</span>
+            <input
+              ref="inputElement"
+              v-model="inputValue"
+              :placeholder="notification.activeTextInput.placeholder"
+              type="text"
+              @input="inputError = ''"
+              @keydown.esc.prevent="cancelTextInput"
+            >
+          </label>
+          <span v-if="inputError" class="confirm-dialog__error">{{ inputError }}</span>
+          <footer>
+            <button type="button" @click="cancelTextInput">
+              {{ notification.activeTextInput.cancelText ?? "取消" }}
+            </button>
+            <button class="confirm-dialog__primary" type="submit">
+              {{ notification.activeTextInput.confirmText ?? "确认" }}
+            </button>
+          </footer>
+        </form>
+      </section>
+    </div>
   </Teleport>
 </template>
 
@@ -89,6 +162,44 @@ const notification = useNotificationStore();
   color: var(--text-main);
   font-size: 13px;
   line-height: 1.6;
+}
+
+.confirm-dialog__form {
+  margin: 0;
+}
+
+.confirm-dialog__form p {
+  padding-bottom: 0;
+}
+
+.confirm-dialog label {
+  display: grid;
+  gap: 7px;
+  padding: 14px 18px 4px;
+  color: var(--text-main);
+  font-size: 12px;
+}
+
+.confirm-dialog input {
+  height: 34px;
+  min-width: 0;
+  border: 1px solid var(--field-border);
+  border-radius: 6px;
+  padding: 0 10px;
+  color: var(--text-strong);
+  background: var(--surface-2);
+  outline: none;
+}
+
+.confirm-dialog input:focus {
+  border-color: var(--accent);
+}
+
+.confirm-dialog__error {
+  display: block;
+  padding: 6px 18px 0;
+  color: var(--danger);
+  font-size: 12px;
 }
 
 .confirm-dialog footer {

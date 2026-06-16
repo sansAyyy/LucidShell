@@ -1350,7 +1350,24 @@ export const useLayoutStore = defineStore("layout", () => {
       return;
     }
 
-    const folderName = window.prompt("新建文件夹名称")?.trim();
+    const folderName = await useNotificationStore().textInput({
+      title: "新建文件夹",
+      message: `将在 ${tab.sftp.currentPath || "."} 下创建文件夹。`,
+      label: "文件夹名称",
+      placeholder: "例如 logs",
+      confirmText: "创建",
+      validate(value) {
+        if (!value) {
+          return "请输入文件夹名称";
+        }
+
+        if (value === "." || value === ".." || value.includes("/") || value.includes("\\")) {
+          return "名称不能包含路径分隔符";
+        }
+
+        return undefined;
+      },
+    });
 
     if (!folderName) {
       return;

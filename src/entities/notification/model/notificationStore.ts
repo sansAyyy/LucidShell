@@ -28,12 +28,28 @@ export type ChoiceRequest = {
   title: string;
 };
 
+export type TextInputRequest = {
+  cancelText?: string;
+  confirmText?: string;
+  initialValue?: string;
+  label: string;
+  message?: string;
+  placeholder?: string;
+  title: string;
+  validate?: (value: string) => string | undefined;
+};
+
 type PendingConfirm = ConfirmRequest & {
   id: string;
   resolve: (value: boolean) => void;
 };
 
 type PendingChoice = ChoiceRequest & {
+  id: string;
+  resolve: (value: string | undefined) => void;
+};
+
+type PendingTextInput = TextInputRequest & {
   id: string;
   resolve: (value: string | undefined) => void;
 };
@@ -46,6 +62,7 @@ export const useNotificationStore = defineStore("notification", () => {
   const toasts = ref<ToastItem[]>([]);
   const pendingConfirm = ref<PendingConfirm>();
   const pendingChoice = ref<PendingChoice>();
+  const pendingTextInput = ref<PendingTextInput>();
 
   function showToast(message: string, tone: ToastTone = "info") {
     const id = createId("toast");
@@ -77,6 +94,16 @@ export const useNotificationStore = defineStore("notification", () => {
     });
   }
 
+  function textInput(request: TextInputRequest) {
+    return new Promise<string | undefined>((resolve) => {
+      pendingTextInput.value = {
+        ...request,
+        id: createId("text-input"),
+        resolve,
+      };
+    });
+  }
+
   function resolveConfirm(value: boolean) {
     const current = pendingConfirm.value;
 
@@ -99,18 +126,33 @@ export const useNotificationStore = defineStore("notification", () => {
     current.resolve(value);
   }
 
+  function resolveTextInput(value: string | undefined) {
+    const current = pendingTextInput.value;
+
+    if (!current) {
+      return;
+    }
+
+    pendingTextInput.value = undefined;
+    current.resolve(value);
+  }
+
   const activeConfirm = computed(() => pendingConfirm.value);
   const activeChoice = computed(() => pendingChoice.value);
+  const activeTextInput = computed(() => pendingTextInput.value);
 
   return {
     activeChoice,
     activeConfirm,
+    activeTextInput,
     choose,
     confirm,
     dismissToast,
     resolveChoice,
     resolveConfirm,
+    resolveTextInput,
     showToast,
+    textInput,
     toasts,
   };
 });
