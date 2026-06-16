@@ -43,6 +43,7 @@ const emit = defineEmits<{
   "entry-context-rename": [entry: SftpPaneState["entries"][number], name: string];
   "remove-transfer-item": [itemId: string];
   "retry-transfer-item": [itemId: string];
+  "resume-upload-queue": [];
   "toggle-collapse": [];
   "toggle-follow-cwd": [];
   upload: [];
@@ -63,6 +64,11 @@ const editingEntryPath = ref("");
 const editingEntryName = ref("");
 const activeView = ref<"files" | "queue">("files");
 const pathSegments = computed(() => buildPathSegments(props.sftp.currentPath));
+const canResumeUploadQueue = computed(() =>
+  props.sftp.transferQueue.some((item) => item.direction === "upload" && item.status === "queued")
+  && !props.sftp.activeUploadId
+  && !props.sftp.activeDownloadId,
+);
 
 watch(
   [() => props.sftp.activeUploadId, () => props.sftp.transferQueue.length],
@@ -196,6 +202,14 @@ function retryTransferItem(item: SftpPaneState["transferQueue"][number]) {
 
 function clearTransferQueue() {
   emit("clear-transfer-queue");
+}
+
+function resumeUploadQueue() {
+  if (!canResumeUploadQueue.value) {
+    return;
+  }
+
+  emit("resume-upload-queue");
 }
 
 function emitUpload() {
@@ -501,15 +515,26 @@ function loadingMessage(sftp: SftpPaneState) {
     <div v-else class="transfer-queue">
       <header class="transfer-queue__header">
         <span class="transfer-queue__count">{{ sftp.transferQueue.length }} 项</span>
-        <button
-          class="transfer-queue__clear"
-          :disabled="!sftp.transferQueue.length"
-          title="清空传输队列"
-          type="button"
-          @click="clearTransferQueue"
-        >
-          清空
-        </button>
+        <span class="transfer-queue__actions">
+          <button
+            v-if="canResumeUploadQueue"
+            class="transfer-queue__action"
+            title="继续剩余上传"
+            type="button"
+            @click="resumeUploadQueue"
+          >
+            继续
+          </button>
+          <button
+            class="transfer-queue__action"
+            :disabled="!sftp.transferQueue.length"
+            title="清空传输队列"
+            type="button"
+            @click="clearTransferQueue"
+          >
+            清空
+          </button>
+        </span>
       </header>
       <div v-if="sftp.transferQueue.length" class="transfer-queue__list">
         <div
@@ -813,7 +838,13 @@ function loadingMessage(sftp: SftpPaneState) {
   font-weight: 650;
 }
 
-.transfer-queue__clear {
+.transfer-queue__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.transfer-queue__action {
   height: 24px;
   border: 1px solid var(--field-border);
   border-radius: 5px;
@@ -824,12 +855,12 @@ function loadingMessage(sftp: SftpPaneState) {
   font-size: 12px;
 }
 
-.transfer-queue__clear:hover {
+.transfer-queue__action:hover {
   color: var(--text-strong);
   background: var(--surface-hover);
 }
 
-.transfer-queue__clear:disabled {
+.transfer-queue__action:disabled {
   color: var(--text-subtle);
   background: transparent;
   cursor: default;

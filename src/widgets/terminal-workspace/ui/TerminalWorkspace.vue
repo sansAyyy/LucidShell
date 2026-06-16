@@ -42,6 +42,7 @@ const emit = defineEmits<{
   "sftp-entry-open": [tabId: string, entry: RemoteFileEntry];
   "sftp-entry-rename": [tabId: string, entry: RemoteFileEntry, name: string];
   "sftp-remove-transfer-item": [tabId: string, itemId: string];
+  "sftp-resume-upload-queue": [tabId: string];
   "sftp-go-parent": [tabId: string];
   "sftp-go-path": [tabId: string, path: string];
   "sftp-new-folder": [tabId: string];
@@ -343,6 +344,7 @@ function startSplitResize(event: PointerEvent) {
       @new-folder="emit('sftp-new-folder', currentTab.id)"
       @refresh="emit('sftp-refresh', currentTab.id)"
       @remove-transfer-item="emit('sftp-remove-transfer-item', currentTab.id, $event)"
+      @resume-upload-queue="emit('sftp-resume-upload-queue', currentTab.id)"
       @retry-transfer-item="emit('sftp-retry-transfer-item', currentTab.id, $event)"
       @select-entry="emit('sftp-select-entry', currentTab.id, $event)"
       @toggle-collapse="emit('toggle-sftp')"

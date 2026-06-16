@@ -2465,6 +2465,29 @@ export const useLayoutStore = defineStore("layout", () => {
     }
   }
 
+  function resumeSftpUploadQueue(tabId: string) {
+    const tab = tabs.value.find((item) => item.id === tabId);
+    const queue = uploadQueues.value[tabId];
+
+    if (!tab || !queue || queue.running || queue.current || !queue.items.length) {
+      return;
+    }
+
+    if (!tab.serverSessionId || !isTauri()) {
+      tab.sftp.transferSummary = "连接已中断，可重试";
+      updateSftpTransferQueue(tab);
+      return;
+    }
+
+    queue.cancelled = false;
+    tab.sftp.uploadQueueCompleted = queue.completed;
+    tab.sftp.uploadQueuePending = queue.items.length;
+    tab.sftp.uploadQueueTotal = queue.total;
+    tab.sftp.transferSummary = `queued ${queue.items.length}`;
+    updateSftpTransferQueue(tab);
+    void runNextSftpUpload(tab.id);
+  }
+
   async function retrySftpDownload(tab: TerminalTab, payload: SftpDownloadRetryPayload) {
     if (!tab.serverSessionId || !isTauri()) {
       return;
@@ -2847,5 +2870,6 @@ export const useLayoutStore = defineStore("layout", () => {
     toggleSftpForTab,
     toggleSidebar,
     retrySftpTransferItem,
+    resumeSftpUploadQueue,
   };
 });
