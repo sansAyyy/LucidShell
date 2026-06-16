@@ -15,6 +15,13 @@ export type SftpUploadRetryPayload = {
   ensureDirectories: string[];
 };
 
+export type SftpDownloadRetryPayload = {
+  kind: "directory" | "file";
+  localPath: string;
+  remotePath: string;
+  fileName: string;
+};
+
 export type SftpTransferItem = {
   id: string;
   direction: "upload" | "download";
@@ -23,7 +30,7 @@ export type SftpTransferItem = {
   progress?: number;
   summary?: string;
   retryable?: boolean;
-  retryPayload?: SftpUploadRetryPayload;
+  retryPayload?: SftpDownloadRetryPayload | SftpUploadRetryPayload;
 };
 
 export type SftpPaneState = {

@@ -56,7 +56,12 @@ import {
   type TerminalClosedEvent,
   type TerminalOutputEvent,
 } from "../../../shared/api/tauri";
-import type { RemoteFileEntry, SftpTransferItem, SftpUploadRetryPayload } from "../../sftp/model/types";
+import type {
+  RemoteFileEntry,
+  SftpDownloadRetryPayload,
+  SftpTransferItem,
+  SftpUploadRetryPayload,
+} from "../../sftp/model/types";
 import type { MonitorState, ServerConnection } from "../../server/model/types";
 import type { TerminalInputPayload, TerminalTab } from "../../terminal/model/types";
 type TerminalWriteQueueState = {
@@ -508,6 +513,60 @@ export const useLayoutStore = defineStore("layout", () => {
       terminalSessionId: tab.terminalSessionId,
       ...context,
     });
+  }
+
+  function friendlySftpError(error: unknown) {
+    const message = formatError(error);
+    const normalized = message.toLowerCase();
+
+    if (
+      normalized.includes("permission denied")
+      || normalized.includes("access denied")
+      || normalized.includes("eacces")
+      || normalized.includes("权限")
+    ) {
+      return "权限不足";
+    }
+
+    if (
+      normalized.includes("no space left")
+      || normalized.includes("disk full")
+      || normalized.includes("enospc")
+      || normalized.includes("磁盘")
+    ) {
+      return "远端磁盘空间不足";
+    }
+
+    if (
+      normalized.includes("no such file")
+      || normalized.includes("not found")
+      || normalized.includes("enoent")
+      || normalized.includes("不存在")
+    ) {
+      return "路径不存在";
+    }
+
+    if (
+      normalized.includes("already exists")
+      || normalized.includes("file exists")
+      || normalized.includes("eexist")
+      || normalized.includes("已存在")
+    ) {
+      return "目标已存在";
+    }
+
+    if (
+      normalized.includes("connection")
+      || normalized.includes("socket")
+      || normalized.includes("closed")
+      || normalized.includes("timed out")
+      || normalized.includes("timeout")
+      || normalized.includes("套接字")
+    ) {
+      return "连接已中断";
+    }
+
+    return shortError(message);
   }
 
   async function refreshActiveMonitor() {
@@ -1428,19 +1487,35 @@ export const useLayoutStore = defineStore("layout", () => {
           localDirectory,
         });
       } catch (error) {
+        const message = friendlySftpError(error);
         recordTabDiagnostic("sftp", tab, "SFTP 文件夹下载失败", {
           error: formatError(error),
           remotePath: selectedEntry.path,
           transferId,
         });
-        tab.sftp.transferSummary = "download error";
+        tab.sftp.transferSummary = message;
         tab.sftp.activeDownloadId = undefined;
         tab.sftp.activeDownloadName = undefined;
         tab.sftp.activeDownloadProgress = undefined;
         tab.sftp.transferProgress = undefined;
         updateSftpTransferQueue(tab);
+        rememberSftpTransfer(tab, {
+          id: transferId,
+          direction: "download",
+          name: selectedEntry.name,
+          status: "error",
+          progress: 0,
+          summary: message,
+          retryable: true,
+          retryPayload: {
+            kind: "directory",
+            fileName: selectedEntry.name,
+            localPath: localDirectory,
+            remotePath: selectedEntry.path,
+          },
+        });
         tab.status = "warning";
-        tab.output += `\r\n[sftp download failed: ${formatError(error)}]\r\n`;
+        tab.output += `\r\n[sftp download failed: ${message}]\r\n`;
       }
       return;
     }
@@ -1474,19 +1549,35 @@ export const useLayoutStore = defineStore("layout", () => {
         localPath,
       });
     } catch (error) {
+      const message = friendlySftpError(error);
       recordTabDiagnostic("sftp", tab, "SFTP 文件下载失败", {
         error: formatError(error),
         remotePath: selectedEntry.path,
         transferId,
       });
-      tab.sftp.transferSummary = "download error";
+      tab.sftp.transferSummary = message;
       tab.sftp.activeDownloadId = undefined;
       tab.sftp.activeDownloadName = undefined;
       tab.sftp.activeDownloadProgress = undefined;
       tab.sftp.transferProgress = undefined;
       updateSftpTransferQueue(tab);
+      rememberSftpTransfer(tab, {
+        id: transferId,
+        direction: "download",
+        name: selectedEntry.name,
+        status: "error",
+        progress: 0,
+        summary: message,
+        retryable: true,
+        retryPayload: {
+          kind: "file",
+          fileName: selectedEntry.name,
+          localPath,
+          remotePath: selectedEntry.path,
+        },
+      });
       tab.status = "warning";
-      tab.output += `\r\n[sftp download failed: ${formatError(error)}]\r\n`;
+      tab.output += `\r\n[sftp download failed: ${message}]\r\n`;
     }
   }
 
@@ -1705,17 +1796,18 @@ export const useLayoutStore = defineStore("layout", () => {
         remotePath: item.remotePath,
       });
     } catch (error) {
+      const message = friendlySftpError(error);
       recordTabDiagnostic("sftp", tab, "SFTP 上传失败", {
         error: formatError(error),
         localPath: item.localPath,
         remotePath: item.remotePath,
         transferId,
       });
-      completeCurrentUpload(tab, "error", formatError(error));
+      completeCurrentUpload(tab, "error", message);
       queue.running = false;
       queue.current = undefined;
       tab.status = "warning";
-      tab.output += `\r\n[sftp upload failed: ${formatError(error)}]\r\n`;
+      tab.output += `\r\n[sftp upload failed: ${message}]\r\n`;
       void runNextSftpUpload(tab.id);
     }
   }
@@ -1850,7 +1942,8 @@ export const useLayoutStore = defineStore("layout", () => {
 
     const fileName = tab.sftp.activeDownloadName ?? (remoteBasename(event.remotePath) || "download");
     const transferId = tab.sftp.activeDownloadId ?? event.transferId;
-    tab.sftp.transferSummary = "download error";
+    const message = event.error ? friendlySftpError(event.error) : "下载失败";
+    tab.sftp.transferSummary = message;
     tab.sftp.activeDownloadId = undefined;
     tab.sftp.activeDownloadName = undefined;
     tab.sftp.activeDownloadProgress = undefined;
@@ -1862,7 +1955,14 @@ export const useLayoutStore = defineStore("layout", () => {
       name: fileName,
       status: "error",
       progress: 0,
-      summary: event.error ? shortError(event.error) : "下载失败",
+      summary: message,
+      retryable: true,
+      retryPayload: {
+        kind: "file",
+        fileName,
+        localPath: event.localPath,
+        remotePath: event.remotePath,
+      },
     });
     tab.status = "warning";
     recordTabDiagnostic("sftp", tab, "SFTP 下载任务失败", {
@@ -1916,14 +2016,15 @@ export const useLayoutStore = defineStore("layout", () => {
       return;
     }
 
-    completeCurrentUpload(tab, "error", event.error);
+    const message = event.error ? friendlySftpError(event.error) : "上传失败";
+    completeCurrentUpload(tab, "error", message);
     tab.status = "warning";
     recordTabDiagnostic("sftp", tab, "SFTP 上传任务失败", {
       error: event.error,
       remotePath: event.remotePath,
       transferId: event.transferId,
     });
-    tab.output += `\r\n[sftp upload failed${event.error ? `: ${event.error}` : ""}]\r\n`;
+    tab.output += `\r\n[sftp upload failed: ${message}]\r\n`;
     void runNextSftpUpload(tab.id);
   }
 
@@ -1995,6 +2096,18 @@ export const useLayoutStore = defineStore("layout", () => {
       fileName: payload.fileName,
       ensureDirectories: [...payload.ensureDirectories],
     };
+  }
+
+  function isSftpDownloadRetryPayload(
+    payload: SftpDownloadRetryPayload | SftpUploadRetryPayload,
+  ): payload is SftpDownloadRetryPayload {
+    return "kind" in payload;
+  }
+
+  function isSftpUploadRetryPayload(
+    payload: SftpDownloadRetryPayload | SftpUploadRetryPayload,
+  ): payload is SftpUploadRetryPayload {
+    return !isSftpDownloadRetryPayload(payload);
   }
 
   async function ensureRemoteDirectories(tab: TerminalTab, directories: string[]) {
@@ -2186,6 +2299,15 @@ export const useLayoutStore = defineStore("layout", () => {
       return;
     }
 
+    if (isSftpDownloadRetryPayload(retryPayload)) {
+      void retrySftpDownload(tab, retryPayload);
+      return;
+    }
+
+    if (!isSftpUploadRetryPayload(retryPayload)) {
+      return;
+    }
+
     const queue = getOrCreateUploadQueue(tab.id);
     queue.cancelled = false;
     queue.items.unshift(createUploadQueueItemFromRetryPayload(tab.id, retryPayload));
@@ -2197,6 +2319,63 @@ export const useLayoutStore = defineStore("layout", () => {
 
     if (!queue.running) {
       void runNextSftpUpload(tab.id);
+    }
+  }
+
+  async function retrySftpDownload(tab: TerminalTab, payload: SftpDownloadRetryPayload) {
+    if (!tab.serverSessionId || !isTauri()) {
+      return;
+    }
+
+    const transferId = `download-${tab.id}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    tab.sftp.transferSummary = `retrying ${payload.fileName}`;
+    tab.sftp.activeDownloadId = transferId;
+    tab.sftp.activeDownloadName = payload.fileName;
+    tab.sftp.activeDownloadProgress = 0;
+    tab.sftp.transferProgress = 0;
+    updateSftpTransferQueue(tab);
+
+    try {
+      if (payload.kind === "directory") {
+        await downloadSftpDirectory({
+          transferId,
+          serverSessionId: tab.serverSessionId,
+          remotePath: payload.remotePath,
+          localDirectory: payload.localPath,
+        });
+      } else {
+        await downloadSftpFile({
+          transferId,
+          serverSessionId: tab.serverSessionId,
+          remotePath: payload.remotePath,
+          localPath: payload.localPath,
+        });
+      }
+    } catch (error) {
+      const message = friendlySftpError(error);
+      recordTabDiagnostic("sftp", tab, "SFTP 下载重试失败", {
+        error: formatError(error),
+        remotePath: payload.remotePath,
+        transferId,
+      });
+      tab.sftp.transferSummary = message;
+      tab.sftp.activeDownloadId = undefined;
+      tab.sftp.activeDownloadName = undefined;
+      tab.sftp.activeDownloadProgress = undefined;
+      tab.sftp.transferProgress = undefined;
+      updateSftpTransferQueue(tab);
+      rememberSftpTransfer(tab, {
+        id: transferId,
+        direction: "download",
+        name: payload.fileName,
+        status: "error",
+        progress: 0,
+        summary: message,
+        retryable: true,
+        retryPayload: payload,
+      });
+      tab.status = "warning";
+      tab.output += `\r\n[sftp download retry failed: ${message}]\r\n`;
     }
   }
 
