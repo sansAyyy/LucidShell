@@ -136,5 +136,5 @@ export function formatUploadQueueSummary(
 
   return queue.total > 1
     ? `${currentIndex}/${queue.total} ${fileName} ${suffix}`
-    : `upload ${fileName} ${suffix}`;
+    : `上传 ${fileName} ${suffix}`;
 }

@@ -453,7 +453,7 @@ export const useLayoutStore = defineStore("layout", () => {
       loadingPath: undefined,
       selectedEntryPath: options.preserveSftpContext ? previousSftp.selectedEntryPath : undefined,
       selectedCount: options.preserveSftpContext ? previousSftp.selectedCount : 0,
-      transferSummary: options.preserveSftpContext ? previousSftp.transferSummary : "idle",
+      transferSummary: options.preserveSftpContext ? previousSftp.transferSummary : "空闲",
       activeDownloadId: undefined,
       activeDownloadName: undefined,
       activeDownloadProgress: undefined,
@@ -569,6 +569,12 @@ export const useLayoutStore = defineStore("layout", () => {
     }
 
     return shortError(message);
+  }
+
+  function retryableSftpSummary(message: string, fallback = "传输失败") {
+    const summary = message || fallback;
+
+    return summary.endsWith("，可重试") ? summary : `${summary}，可重试`;
   }
 
   async function refreshActiveMonitor() {
@@ -1248,6 +1254,8 @@ export const useLayoutStore = defineStore("layout", () => {
       && previousSftp.transferSummary
       && previousSftp.transferSummary !== "loading"
       && previousSftp.transferSummary !== "idle"
+      && previousSftp.transferSummary !== "加载中"
+      && previousSftp.transferSummary !== "空闲"
     );
     const hasActiveTransfer = Boolean(
       previousSftp.activeDownloadId
@@ -1260,7 +1268,7 @@ export const useLayoutStore = defineStore("layout", () => {
     tab.sftp.loadingPath = options.loadingPath ?? targetPath;
     tab.sftp.transferSummary = (hasActiveTransfer || shouldPreserveTransferSummary)
       ? previousSftp.transferSummary
-      : "loading";
+      : "加载中";
 
     try {
       const directory = await listSftpDirectory({
@@ -1301,8 +1309,8 @@ export const useLayoutStore = defineStore("layout", () => {
       tab.sftp.loadingAction = undefined;
       tab.sftp.loadingPath = undefined;
       tab.sftp.transferSummary = options.softError
-        ? (shouldPreserveTransferSummary ? previousSftp.transferSummary : "refresh failed")
-        : "error";
+        ? (shouldPreserveTransferSummary ? previousSftp.transferSummary : "刷新失败")
+        : "读取失败";
       tab.status = "warning";
       tab.output += options.softError
         ? `\r\n[sftp refresh failed after reconnect: ${formatError(error)}]\r\n`
@@ -1360,7 +1368,7 @@ export const useLayoutStore = defineStore("layout", () => {
         path: joinRemotePath(tab.sftp.currentPath || ".", folderName),
       });
       tab.status = "warning";
-      tab.sftp.transferSummary = "mkdir error";
+      tab.sftp.transferSummary = "新建文件夹失败";
       tab.output += `\r\n[sftp mkdir failed: ${formatError(error)}]\r\n`;
     }
   }
@@ -1392,7 +1400,7 @@ export const useLayoutStore = defineStore("layout", () => {
         targetName: nextName,
       });
       tab.status = "warning";
-      tab.sftp.transferSummary = "rename error";
+      tab.sftp.transferSummary = "重命名失败";
       tab.output += `\r\n[sftp rename failed: ${formatError(error)}]\r\n`;
     }
   }
@@ -1435,7 +1443,7 @@ export const useLayoutStore = defineStore("layout", () => {
         path: entry.path,
       });
       tab.status = "warning";
-      tab.sftp.transferSummary = "delete error";
+      tab.sftp.transferSummary = "删除失败";
       tab.output += `\r\n[sftp delete failed: ${formatError(error)}]\r\n`;
       notification.showToast(`删除失败：${formatError(error)}`, "error");
     }
@@ -1449,11 +1457,11 @@ export const useLayoutStore = defineStore("layout", () => {
     }
 
     if (entry.kind !== "file") {
-      tab.sftp.transferSummary = "files only";
+      tab.sftp.transferSummary = "仅支持文件";
       return;
     }
 
-    tab.sftp.transferSummary = "preparing edit";
+    tab.sftp.transferSummary = "准备编辑";
 
     try {
       const editSession = await openSftpLocalEdit({
@@ -1462,14 +1470,14 @@ export const useLayoutStore = defineStore("layout", () => {
       });
 
       await openPath(editSession.localPath);
-      tab.sftp.transferSummary = "watching edits";
+      tab.sftp.transferSummary = "正在监听编辑";
     } catch (error) {
       recordTabDiagnostic("sftp", tab, "SFTP 本地编辑失败", {
         error: formatError(error),
         path: entry.path,
       });
       tab.status = "warning";
-      tab.sftp.transferSummary = `edit error: ${shortError(error)}`;
+      tab.sftp.transferSummary = `编辑失败：${shortError(error)}`;
     }
   }
 
@@ -1483,7 +1491,7 @@ export const useLayoutStore = defineStore("layout", () => {
     const selectedEntry = tab.sftp.entries.find((entry) => entry.path === tab.sftp.selectedEntryPath);
 
     if (!selectedEntry) {
-      tab.sftp.transferSummary = "select a file";
+      tab.sftp.transferSummary = "请选择文件";
       return;
     }
 
@@ -1499,7 +1507,7 @@ export const useLayoutStore = defineStore("layout", () => {
       }
 
       const transferId = `download-${tab.id}-${Date.now()}`;
-      tab.sftp.transferSummary = "download 0%";
+      tab.sftp.transferSummary = "下载 0%";
       tab.sftp.activeDownloadId = transferId;
       tab.sftp.activeDownloadName = selectedEntry.name;
       tab.sftp.activeDownloadProgress = 0;
@@ -1542,7 +1550,7 @@ export const useLayoutStore = defineStore("layout", () => {
           name: selectedEntry.name,
           status: "error",
           progress: 0,
-          summary: message,
+          summary: retryableSftpSummary(message, "下载失败"),
           retryable: true,
           retryPayload: {
             kind: "directory",
@@ -1558,7 +1566,7 @@ export const useLayoutStore = defineStore("layout", () => {
     }
 
     if (selectedEntry.kind !== "file") {
-      tab.sftp.transferSummary = "files only";
+      tab.sftp.transferSummary = "仅支持文件";
       return;
     }
 
@@ -1572,7 +1580,7 @@ export const useLayoutStore = defineStore("layout", () => {
     }
 
     const transferId = `download-${tab.id}-${Date.now()}`;
-    tab.sftp.transferSummary = "download 0%";
+    tab.sftp.transferSummary = "下载 0%";
     tab.sftp.activeDownloadId = transferId;
     tab.sftp.activeDownloadName = selectedEntry.name;
     tab.sftp.activeDownloadProgress = 0;
@@ -1615,7 +1623,7 @@ export const useLayoutStore = defineStore("layout", () => {
         name: selectedEntry.name,
         status: "error",
         progress: 0,
-        summary: message,
+        summary: retryableSftpSummary(message, "下载失败"),
         retryable: true,
         retryPayload: {
           kind: "file",
@@ -1667,7 +1675,7 @@ export const useLayoutStore = defineStore("layout", () => {
       return;
     }
 
-    tab.sftp.transferSummary = "preparing upload";
+    tab.sftp.transferSummary = "准备上传";
     updateSftpTransferQueue(tab);
 
     try {
@@ -1687,7 +1695,7 @@ export const useLayoutStore = defineStore("layout", () => {
       const conflictChoice = await resolveSftpUploadConflicts(tab, preparedItems, pendingDirectories);
 
       if (conflictChoice.action === "cancel") {
-        tab.sftp.transferSummary = "upload cancelled";
+        tab.sftp.transferSummary = "上传已取消";
         updateSftpTransferQueue(tab);
         return;
       }
@@ -1701,7 +1709,7 @@ export const useLayoutStore = defineStore("layout", () => {
         if (conflictChoice.directories.length && conflictChoice.action !== "skip") {
           await ensureRemoteDirectories(tab, conflictChoice.directories);
         }
-        tab.sftp.transferSummary = conflictChoice.action === "skip" ? "upload skipped" : "invalid file";
+        tab.sftp.transferSummary = conflictChoice.action === "skip" ? "已跳过上传" : "文件无效";
         updateSftpTransferQueue(tab);
         await refreshSftpForTab(tab.id, tab.sftp.currentPath);
         return;
@@ -1716,8 +1724,8 @@ export const useLayoutStore = defineStore("layout", () => {
       tab.sftp.uploadQueuePending = queue.items.length;
       tab.sftp.uploadQueueTotal = queue.total;
       tab.sftp.transferSummary = queue.running
-        ? `queued ${queue.items.length}`
-        : `queued ${items.length}`;
+        ? `等待上传 ${queue.items.length} 项`
+        : `等待上传 ${items.length} 项`;
       updateSftpTransferQueue(tab);
 
       if (!queue.running) {
@@ -1729,7 +1737,7 @@ export const useLayoutStore = defineStore("layout", () => {
         localPaths,
         remoteDirectory: tab.sftp.currentPath || ".",
       });
-      tab.sftp.transferSummary = "upload prepare error";
+      tab.sftp.transferSummary = "上传准备失败";
       updateSftpTransferQueue(tab);
       tab.status = "warning";
       tab.output += `\r\n[sftp upload prepare failed: ${formatError(error)}]\r\n`;
@@ -1872,7 +1880,7 @@ export const useLayoutStore = defineStore("layout", () => {
       return;
     }
 
-    tab.sftp.transferSummary = "cancelling";
+    tab.sftp.transferSummary = "正在取消";
     updateSftpTransferQueue(tab);
 
     try {
@@ -1882,7 +1890,7 @@ export const useLayoutStore = defineStore("layout", () => {
         error: formatError(error),
         transferId,
       });
-      tab.sftp.transferSummary = "cancel failed";
+      tab.sftp.transferSummary = "取消失败";
       tab.status = "warning";
       tab.output += `\r\n[sftp cancel failed: ${formatError(error)}]\r\n`;
     }
@@ -1903,13 +1911,13 @@ export const useLayoutStore = defineStore("layout", () => {
 
     if (!transferId || !isTauri()) {
       if (tab) {
-        resetUploadQueueState(tab, "cancelled");
+        resetUploadQueueState(tab, "已取消");
         removeUploadQueue(tabId);
       }
       return;
     }
 
-    tab.sftp.transferSummary = "cancelling";
+    tab.sftp.transferSummary = "正在取消";
     updateSftpTransferQueue(tab);
 
     try {
@@ -1919,7 +1927,7 @@ export const useLayoutStore = defineStore("layout", () => {
         error: formatError(error),
         transferId,
       });
-      tab.sftp.transferSummary = "cancel failed";
+      tab.sftp.transferSummary = "取消失败";
       tab.status = "warning";
       tab.output += `\r\n[sftp cancel failed: ${formatError(error)}]\r\n`;
     }
@@ -1944,8 +1952,8 @@ export const useLayoutStore = defineStore("layout", () => {
         ? `${progress}%`
         : formatBytes(event.transferredBytes);
       tab.sftp.transferSummary = fileName
-        ? `download ${fileName} ${suffix}`
-        : `download ${suffix}`;
+        ? `下载 ${fileName} ${suffix}`
+        : `下载 ${suffix}`;
       updateSftpTransferQueue(tab);
       return;
     }
@@ -1955,7 +1963,7 @@ export const useLayoutStore = defineStore("layout", () => {
       const transferId = tab.sftp.activeDownloadId ?? event.transferId;
       tab.sftp.transferProgress = 100;
       tab.sftp.activeDownloadProgress = 100;
-      tab.sftp.transferSummary = "downloaded";
+      tab.sftp.transferSummary = "已下载";
       tab.sftp.activeDownloadId = undefined;
       tab.sftp.activeDownloadName = undefined;
       tab.sftp.activeDownloadProgress = undefined;
@@ -1976,7 +1984,7 @@ export const useLayoutStore = defineStore("layout", () => {
     if (event.status === "cancelled") {
       const fileName = tab.sftp.activeDownloadName ?? (remoteBasename(event.remotePath) || "download");
       const transferId = tab.sftp.activeDownloadId ?? event.transferId;
-      tab.sftp.transferSummary = "cancelled";
+      tab.sftp.transferSummary = "已取消";
       tab.sftp.activeDownloadId = undefined;
       tab.sftp.activeDownloadName = undefined;
       tab.sftp.activeDownloadProgress = undefined;
@@ -2010,7 +2018,7 @@ export const useLayoutStore = defineStore("layout", () => {
       name: fileName,
       status: "error",
       progress: 0,
-      summary: message,
+      summary: retryableSftpSummary(message, "下载失败"),
       retryable: true,
       retryPayload: {
         kind: "file",
@@ -2044,8 +2052,8 @@ export const useLayoutStore = defineStore("layout", () => {
       tab.sftp.transferSummary = queue
         ? formatUploadQueueSummary(queue, progress, event.transferredBytes, event.totalBytes)
         : event.totalBytes
-          ? `upload ${progress}%`
-          : `upload ${formatBytes(event.transferredBytes)}`;
+          ? `上传 ${progress}%`
+          : `上传 ${formatBytes(event.transferredBytes)}`;
       updateSftpTransferQueue(tab);
       return;
     }
@@ -2091,18 +2099,18 @@ export const useLayoutStore = defineStore("layout", () => {
     }
 
     if (event.status === "started") {
-      tab.sftp.transferSummary = "syncing edit";
+      tab.sftp.transferSummary = "正在同步编辑";
       return;
     }
 
     if (event.status === "completed") {
-      tab.sftp.transferSummary = "edit synced";
+      tab.sftp.transferSummary = "编辑已同步";
       void refreshSftpForTab(tab.id, tab.sftp.currentPath);
       return;
     }
 
     tab.status = "warning";
-    tab.sftp.transferSummary = event.error ? `sync error: ${shortError(event.error)}` : "sync error";
+    tab.sftp.transferSummary = event.error ? `同步失败：${shortError(event.error)}` : "同步失败";
     recordTabDiagnostic("sftp", tab, "SFTP 本地编辑同步失败", {
       editId: event.editId,
       error: event.error,
@@ -2339,21 +2347,19 @@ export const useLayoutStore = defineStore("layout", () => {
         ? "已完成"
         : status === "cancelled"
           ? "已取消"
-          : errorMessage
-            ? shortError(errorMessage)
-            : "上传失败",
+          : retryableSftpSummary(errorMessage ?? "上传失败", "上传失败"),
       retryable: status === "error",
       retryPayload: retryPayload,
     });
 
     if (status === "completed" && queue && queue.items.length > 0) {
-      tab.sftp.transferSummary = `queued ${queue.items.length}`;
+      tab.sftp.transferSummary = `等待上传 ${queue.items.length} 项`;
       updateSftpTransferQueue(tab);
       return;
     }
 
     if (status === "completed") {
-      resetUploadQueueState(tab, queue && queue.total > 1 ? `uploaded ${queue.completed}/${queue.total}` : "uploaded");
+      resetUploadQueueState(tab, queue && queue.total > 1 ? `已上传 ${queue.completed}/${queue.total}` : "已上传");
       removeUploadQueue(tab.id);
       return;
     }
@@ -2362,12 +2368,12 @@ export const useLayoutStore = defineStore("layout", () => {
       tab.sftp.uploadQueueCompleted = queue.completed;
       tab.sftp.uploadQueuePending = queue.items.length;
       tab.sftp.uploadQueueTotal = queue.total;
-      tab.sftp.transferSummary = queue.items.length ? `queued ${queue.items.length}` : "upload error";
+      tab.sftp.transferSummary = queue.items.length ? `等待上传 ${queue.items.length} 项` : "上传失败，可重试";
       updateSftpTransferQueue(tab);
       return;
     }
 
-    resetUploadQueueState(tab, "cancelled");
+    resetUploadQueueState(tab, "已取消");
   }
 
   function showSftpTransferQueue(tab: TerminalTab) {
@@ -2459,7 +2465,7 @@ export const useLayoutStore = defineStore("layout", () => {
     queue.total = Math.max(queue.total, queue.completed + queue.items.length + (queue.current ? 1 : 0));
     tab.sftp.uploadQueuePending = queue.items.length;
     tab.sftp.uploadQueueTotal = queue.total;
-    tab.sftp.transferSummary = queue.running ? `queued ${queue.items.length}` : `retrying ${retryPayload.fileName}`;
+    tab.sftp.transferSummary = queue.running ? `等待上传 ${queue.items.length} 项` : `重试上传 ${retryPayload.fileName}`;
     updateSftpTransferQueue(tab);
 
     if (!queue.running) {
@@ -2491,7 +2497,7 @@ export const useLayoutStore = defineStore("layout", () => {
     tab.sftp.uploadQueueCompleted = queue.completed;
     tab.sftp.uploadQueuePending = queue.items.length;
     tab.sftp.uploadQueueTotal = queue.total;
-    tab.sftp.transferSummary = `queued ${queue.items.length}`;
+    tab.sftp.transferSummary = `等待上传 ${queue.items.length} 项`;
     updateSftpTransferQueue(tab);
     void runNextSftpUpload(tab.id);
   }
@@ -2502,7 +2508,7 @@ export const useLayoutStore = defineStore("layout", () => {
     }
 
     const transferId = `download-${tab.id}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    tab.sftp.transferSummary = `retrying ${payload.fileName}`;
+    tab.sftp.transferSummary = `重试下载 ${payload.fileName}`;
     tab.sftp.activeDownloadId = transferId;
     tab.sftp.activeDownloadName = payload.fileName;
     tab.sftp.activeDownloadProgress = 0;
@@ -2550,7 +2556,7 @@ export const useLayoutStore = defineStore("layout", () => {
         name: payload.fileName,
         status: "error",
         progress: 0,
-        summary: message,
+        summary: retryableSftpSummary(message, "下载失败"),
         retryable: true,
         retryPayload: payload,
       });
@@ -2559,7 +2565,7 @@ export const useLayoutStore = defineStore("layout", () => {
     }
   }
 
-  function resetUploadQueueState(tab: TerminalTab, summary = "idle") {
+  function resetUploadQueueState(tab: TerminalTab, summary = "空闲") {
     tab.sftp.activeUploadId = undefined;
     tab.sftp.activeUploadName = undefined;
     tab.sftp.activeUploadProgress = undefined;
@@ -2640,7 +2646,7 @@ export const useLayoutStore = defineStore("layout", () => {
       tab.sftpFollowTerminalCwd = false;
       tab.sftpFollowTerminalCwdStatus = "error";
       tab.sftpFollowTerminalCwdError = "Terminal 尚未连接";
-      tab.sftp.transferSummary = "cwd sync error";
+      tab.sftp.transferSummary = "目录同步失败";
       return false;
     }
 
@@ -2671,7 +2677,7 @@ export const useLayoutStore = defineStore("layout", () => {
       tab.sftpFollowTerminalCwd = false;
       tab.sftpFollowTerminalCwdStatus = "error";
       tab.sftpFollowTerminalCwdError = message;
-      tab.sftp.transferSummary = "cwd sync error";
+      tab.sftp.transferSummary = "目录同步失败";
       tab.status = "warning";
       tab.output += `\r\n[cwd sync failed: ${message}]\r\n`;
       return false;
@@ -2789,7 +2795,7 @@ export const useLayoutStore = defineStore("layout", () => {
         loading: false,
         loadingAction: undefined,
         selectedCount: 0,
-        transferSummary: "idle",
+        transferSummary: "空闲",
         transferQueue: [],
         entries: [],
       },
