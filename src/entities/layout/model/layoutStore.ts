@@ -1496,6 +1496,10 @@ export const useLayoutStore = defineStore("layout", () => {
           localDirectory,
         });
       } catch (error) {
+        if (!isCurrentSftpDownload(tab, transferId)) {
+          return;
+        }
+
         const message = friendlySftpError(error);
         recordTabDiagnostic("sftp", tab, "SFTP 文件夹下载失败", {
           error: formatError(error),
@@ -1565,6 +1569,10 @@ export const useLayoutStore = defineStore("layout", () => {
         localPath,
       });
     } catch (error) {
+      if (!isCurrentSftpDownload(tab, transferId)) {
+        return;
+      }
+
       const message = friendlySftpError(error);
       recordTabDiagnostic("sftp", tab, "SFTP 文件下载失败", {
         error: formatError(error),
@@ -1813,6 +1821,10 @@ export const useLayoutStore = defineStore("layout", () => {
         remotePath: item.remotePath,
       });
     } catch (error) {
+      if (!isCurrentSftpUpload(tab, transferId, item)) {
+        return;
+      }
+
       const message = friendlySftpError(error);
       recordTabDiagnostic("sftp", tab, "SFTP 上传失败", {
         error: formatError(error),
@@ -2128,6 +2140,21 @@ export const useLayoutStore = defineStore("layout", () => {
     payload: SftpDownloadRetryPayload | SftpUploadRetryPayload,
   ): payload is SftpUploadRetryPayload {
     return !isSftpDownloadRetryPayload(payload);
+  }
+
+  function isCurrentSftpDownload(tab: TerminalTab, transferId: string) {
+    return tabs.value.some((item) => item.id === tab.id)
+      && tab.sftp.activeDownloadId === transferId;
+  }
+
+  function isCurrentSftpUpload(tab: TerminalTab, transferId: string, item: SftpUploadQueueItem) {
+    const queue = uploadQueues.value[tab.id];
+
+    return tabs.value.some((tabItem) => tabItem.id === tab.id)
+      && tab.sftp.activeUploadId === transferId
+      && queue?.current === item
+      && queue.running
+      && !queue.cancelled;
   }
 
   function markActiveTransfersInterrupted(tab: TerminalTab) {
@@ -2446,6 +2473,10 @@ export const useLayoutStore = defineStore("layout", () => {
         });
       }
     } catch (error) {
+      if (!isCurrentSftpDownload(tab, transferId)) {
+        return;
+      }
+
       const message = friendlySftpError(error);
       recordTabDiagnostic("sftp", tab, "SFTP 下载重试失败", {
         error: formatError(error),
