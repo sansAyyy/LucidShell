@@ -300,8 +300,9 @@ export const useLayoutStore = defineStore("layout", () => {
       pendingTerminalOutput.value = rest;
     }
 
-    resetTabConnectionState(tab, { clearOutput: true });
+    resetTabConnectionState(tab, { clearOutput: false, preserveSftpContext: true });
     tab.status = "reconnecting";
+    tab.output += "\r\n[reconnecting...]\r\n";
 
     activeTabId.value = tab.id;
     void ensureTerminalForTab(tab.id);
@@ -418,7 +419,12 @@ export const useLayoutStore = defineStore("layout", () => {
     }
   }
 
-  function resetTabConnectionState(tab: TerminalTab, options: { clearOutput: boolean }) {
+  function resetTabConnectionState(
+    tab: TerminalTab,
+    options: { clearOutput: boolean; preserveSftpContext?: boolean },
+  ) {
+    const previousSftp = tab.sftp;
+
     tab.serverSessionId = undefined;
     tab.terminalSessionId = undefined;
     tab.cwdHookTerminalSessionId = undefined;
@@ -433,13 +439,13 @@ export const useLayoutStore = defineStore("layout", () => {
 
     tab.sftp = {
       ...tab.sftp,
-      currentPath: ".",
-      entries: [],
+      currentPath: options.preserveSftpContext ? previousSftp.currentPath : ".",
+      entries: options.preserveSftpContext ? previousSftp.entries : [],
       loading: false,
       loadingAction: undefined,
       loadingPath: undefined,
-      selectedEntryPath: undefined,
-      selectedCount: 0,
+      selectedEntryPath: options.preserveSftpContext ? previousSftp.selectedEntryPath : undefined,
+      selectedCount: options.preserveSftpContext ? previousSftp.selectedCount : 0,
       transferSummary: "idle",
       activeDownloadId: undefined,
       activeDownloadName: undefined,
@@ -802,12 +808,17 @@ export const useLayoutStore = defineStore("layout", () => {
     const isReconnect = tab.status === "reconnecting" || tab.reconnectOnInput;
     tab.status = isReconnect ? "reconnecting" : "active";
     tab.reconnectOnInput = false;
-    tab.output = "";
+
+    if (!isReconnect) {
+      tab.output = "";
+    } else if (tab.output && !tab.output.endsWith("\r\n")) {
+      tab.output += "\r\n";
+    }
 
     if (server.authType !== "password") {
       tab.status = "error";
       tab.reconnectOnInput = true;
-      tab.output = "[ssh connection failed: MVP currently supports password login only]\r\n[按任意键重新连接]\r\n";
+      tab.output += "[ssh connection failed: MVP currently supports password login only]\r\n[按任意键重新连接]\r\n";
       recordDiagnostic("connection", "SSH 连接失败：暂不支持该认证方式", {
         authType: server.authType,
         serverId: server.id,
@@ -821,7 +832,7 @@ export const useLayoutStore = defineStore("layout", () => {
     if (!password) {
       tab.status = "error";
       tab.reconnectOnInput = true;
-      tab.output = server.credentialStorage === "keychain"
+      tab.output += server.credentialStorage === "keychain"
         ? "[ssh connection failed: system credential password is missing, please edit the connection and enter the password again]\r\n[按任意键重新连接]\r\n"
         : "[ssh connection failed: password is not saved for this connection]\r\n[按任意键重新连接]\r\n";
       recordDiagnostic("credential", "SSH 连接失败：密码凭据缺失", {
@@ -871,7 +882,7 @@ export const useLayoutStore = defineStore("layout", () => {
         const installed = await installTerminalCwdHook(tab);
         tab.sftpFollowTerminalCwdStatus = installed ? "enabled" : tab.sftpFollowTerminalCwdStatus;
       }
-      await refreshSftpForTab(tab.id, tab.sftpFollowTerminalCwd ? tab.cwd : ".");
+      await refreshSftpForTab(tab.id, tab.sftpFollowTerminalCwd ? tab.cwd : tab.sftp.currentPath || ".");
       void refreshMonitorForSession(serverSession);
     } catch (error) {
       removeServerSession(server.id);
@@ -962,9 +973,9 @@ export const useLayoutStore = defineStore("layout", () => {
     pendingHostKeyTrust.value = undefined;
     const tab = tabs.value.find((item) => item.id === pending.tabId);
     if (tab) {
-      resetTabConnectionState(tab, { clearOutput: true });
+      resetTabConnectionState(tab, { clearOutput: false, preserveSftpContext: true });
       tab.status = "reconnecting";
-      tab.output = "[reconnecting with trusted host key...]\r\n";
+      tab.output += "\r\n[reconnecting with trusted host key...]\r\n";
       void ensureTerminalForTab(tab.id);
     }
   }
@@ -978,9 +989,9 @@ export const useLayoutStore = defineStore("layout", () => {
     }
 
     if (tab.reconnectOnInput) {
-      resetTabConnectionState(tab, { clearOutput: true });
+      resetTabConnectionState(tab, { clearOutput: false, preserveSftpContext: true });
       tab.status = "reconnecting";
-      tab.output = "[reconnecting...]\r\n";
+      tab.output += "\r\n[reconnecting...]\r\n";
       void ensureTerminalForTab(tabId);
       return;
     }
