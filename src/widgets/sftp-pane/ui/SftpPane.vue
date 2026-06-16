@@ -193,11 +193,19 @@ function removeTransferItem(item: SftpPaneState["transferQueue"][number]) {
 }
 
 function retryTransferItem(item: SftpPaneState["transferQueue"][number]) {
-  if (!item.retryable) {
+  if (!canRetryTransferItem(item)) {
     return;
   }
 
   emit("retry-transfer-item", item.id);
+}
+
+function canRetryTransferItem(item: SftpPaneState["transferQueue"][number]) {
+  return item.status === "error" && item.retryable === true && Boolean(item.retryPayload);
+}
+
+function retryTransferTitle(item: SftpPaneState["transferQueue"][number]) {
+  return item.direction === "download" ? "重试下载" : "重试上传";
 }
 
 function clearTransferQueue() {
@@ -555,8 +563,8 @@ function loadingMessage(sftp: SftpPaneState) {
             <span :style="{ width: `${item.progress ?? 0}%` }" />
           </span>
           <button
-            v-if="item.retryable"
-            title="重试任务"
+            v-if="canRetryTransferItem(item)"
+            :title="retryTransferTitle(item)"
             type="button"
             @click.stop="retryTransferItem(item)"
           >
