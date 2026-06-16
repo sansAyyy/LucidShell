@@ -74,9 +74,19 @@ type SftpUploadConflictChoice = "overwrite" | "skip" | "cancel";
 const emptyMonitor: MonitorState = {};
 const TERMINAL_WRITE_CHUNK_SIZE = 4096;
 const TERMINAL_PASTE_CONFIRM_THRESHOLD = 20_000;
+const TERMINAL_PASTE_PREVIEW_LIMIT = 240;
 const TERMINAL_WRITE_QUEUE_LIMIT = 2_000_000;
 const HEALTH_CHECK_INTERVAL_MS = 30_000;
 const HEALTH_CHECK_MIN_GAP_MS = 5_000;
+
+const DANGEROUS_PASTE_PATTERNS = [
+  /\brm\s+(-[^\s]*[rf][^\s]*|-[^\s]*[fr][^\s]*)\b/,
+  /\bsudo\s+rm\s+(-[^\s]*[rf][^\s]*|-[^\s]*[fr][^\s]*)\b/,
+  /\bdd\s+[^;\r\n]*\bof=\/dev\//,
+  /\bmkfs(?:\.[\w-]+)?\b/,
+  /\b(shutdown|reboot|poweroff|halt)\b/,
+  /:\s*\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;/,
+];
 
 export const useLayoutStore = defineStore("layout", () => {
   const defaultSftpHeightRatio = 0.38;
@@ -1098,10 +1108,11 @@ export const useLayoutStore = defineStore("layout", () => {
       return;
     }
 
-    if (input.kind === "paste" && input.data.length >= TERMINAL_PASTE_CONFIRM_THRESHOLD) {
+    const pasteWarning = input.kind === "paste" ? analyzeTerminalPaste(input.data) : undefined;
+    if (pasteWarning) {
       const confirmed = await useNotificationStore().confirm({
-        title: "确认粘贴大量文本",
-        message: `即将向当前终端粘贴 ${formatBytes(input.data.length)} 内容。请确认目标终端处于正确位置，避免误执行命令。`,
+        title: pasteWarning.title,
+        message: pasteWarning.message,
         cancelText: "取消",
         confirmText: "继续粘贴",
       });
@@ -1118,6 +1129,66 @@ export const useLayoutStore = defineStore("layout", () => {
     return typeof payload === "string"
       ? { data: payload, kind: "key" }
       : payload;
+  }
+
+  function analyzeTerminalPaste(data: string) {
+    const text = unwrapBracketedPaste(data);
+    const normalized = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+    const lines = normalized.split("\n");
+    const nonEmptyLines = lines.filter((line) => line.trim().length > 0);
+    const endsWithEnter = /[\r\n]$/.test(text);
+    const hasMultipleCommands = nonEmptyLines.length > 1;
+    const dangerous = DANGEROUS_PASTE_PATTERNS.some((pattern) => pattern.test(normalized));
+    const isLarge = data.length >= TERMINAL_PASTE_CONFIRM_THRESHOLD;
+
+    if (!isLarge && !hasMultipleCommands && !endsWithEnter && !dangerous) {
+      return undefined;
+    }
+
+    const reasons = [];
+    if (dangerous) {
+      reasons.push("包含高风险命令");
+    }
+    if (endsWithEnter) {
+      reasons.push("粘贴后可能立即执行");
+    }
+    if (hasMultipleCommands) {
+      reasons.push(`包含 ${nonEmptyLines.length} 行内容`);
+    }
+    if (isLarge) {
+      reasons.push(`内容大小 ${formatBytes(data.length)}`);
+    }
+
+    return {
+      title: dangerous ? "确认粘贴高风险内容" : "确认粘贴到终端",
+      message: [
+        `即将向当前终端粘贴内容：${reasons.join("，")}。`,
+        "请确认目标终端处于正确位置，避免误执行命令。",
+        `预览：${previewTerminalPaste(normalized)}`,
+      ].join("\n"),
+    };
+  }
+
+  function unwrapBracketedPaste(data: string) {
+    return data.startsWith("\x1b[200~") && data.endsWith("\x1b[201~")
+      ? data.slice("\x1b[200~".length, -"\x1b[201~".length)
+      : data;
+  }
+
+  function previewTerminalPaste(text: string) {
+    const preview = text
+      .split("\n")
+      .slice(0, 4)
+      .join("\n")
+      .trim();
+
+    if (!preview) {
+      return "(空白内容)";
+    }
+
+    return preview.length > TERMINAL_PASTE_PREVIEW_LIMIT
+      ? `${preview.slice(0, TERMINAL_PASTE_PREVIEW_LIMIT)}...`
+      : preview;
   }
 
   function enqueueTerminalWrite(tabId: string, input: TerminalInputPayload) {

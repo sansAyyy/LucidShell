@@ -162,6 +162,7 @@ function submitTextInput() {
   color: var(--text-main);
   font-size: 13px;
   line-height: 1.6;
+  white-space: pre-wrap;
 }
 
 .confirm-dialog__form {
