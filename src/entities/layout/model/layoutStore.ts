@@ -949,7 +949,11 @@ export const useLayoutStore = defineStore("layout", () => {
         const installed = await installTerminalCwdHook(tab);
         tab.sftpFollowTerminalCwdStatus = installed ? "enabled" : tab.sftpFollowTerminalCwdStatus;
       }
-      await refreshSftpForTab(tab.id, tab.sftpFollowTerminalCwd ? tab.cwd : tab.sftp.currentPath || ".");
+      await refreshSftpForTab(tab.id, tab.sftpFollowTerminalCwd ? tab.cwd : tab.sftp.currentPath || ".", {
+        loadingAction: isReconnect ? "refresh" : undefined,
+        preserveTransferSummary: isReconnect,
+        softError: isReconnect,
+      });
       void refreshMonitorForSession(serverSession);
     } catch (error) {
       removeServerSession(server.id);
@@ -1224,7 +1228,12 @@ export const useLayoutStore = defineStore("layout", () => {
   async function refreshSftpForTab(
     tabId: string,
     path?: string,
-    options: { loadingAction?: "open" | "refresh" | "delete"; loadingPath?: string } = {},
+    options: {
+      loadingAction?: "open" | "refresh" | "delete";
+      loadingPath?: string;
+      preserveTransferSummary?: boolean;
+      softError?: boolean;
+    } = {},
   ) {
     const tab = tabs.value.find((item) => item.id === tabId);
 
@@ -1234,6 +1243,12 @@ export const useLayoutStore = defineStore("layout", () => {
 
     const targetPath = path ?? (tab.sftp.currentPath || ".");
     const previousSftp = tab.sftp;
+    const shouldPreserveTransferSummary = Boolean(
+      options.preserveTransferSummary
+      && previousSftp.transferSummary
+      && previousSftp.transferSummary !== "loading"
+      && previousSftp.transferSummary !== "idle"
+    );
     const hasActiveTransfer = Boolean(
       previousSftp.activeDownloadId
       || previousSftp.activeUploadId
@@ -1243,7 +1258,9 @@ export const useLayoutStore = defineStore("layout", () => {
     tab.sftp.loading = true;
     tab.sftp.loadingAction = options.loadingAction ?? (path ? "open" : "refresh");
     tab.sftp.loadingPath = options.loadingPath ?? targetPath;
-    tab.sftp.transferSummary = hasActiveTransfer ? previousSftp.transferSummary : "loading";
+    tab.sftp.transferSummary = (hasActiveTransfer || shouldPreserveTransferSummary)
+      ? previousSftp.transferSummary
+      : "loading";
 
     try {
       const directory = await listSftpDirectory({
@@ -1259,7 +1276,9 @@ export const useLayoutStore = defineStore("layout", () => {
         loadingPath: undefined,
         selectedEntryPath: undefined,
         selectedCount: 0,
-        transferSummary: hasActiveTransfer ? previousSftp.transferSummary : `${directory.entries.length} items`,
+        transferSummary: (hasActiveTransfer || shouldPreserveTransferSummary)
+          ? previousSftp.transferSummary
+          : `${directory.entries.length} items`,
         activeDownloadId: previousSftp.activeDownloadId,
         activeDownloadName: previousSftp.activeDownloadName,
         activeDownloadProgress: previousSftp.activeDownloadProgress,
@@ -1281,9 +1300,13 @@ export const useLayoutStore = defineStore("layout", () => {
       tab.sftp.loading = false;
       tab.sftp.loadingAction = undefined;
       tab.sftp.loadingPath = undefined;
-      tab.sftp.transferSummary = "error";
+      tab.sftp.transferSummary = options.softError
+        ? (shouldPreserveTransferSummary ? previousSftp.transferSummary : "refresh failed")
+        : "error";
       tab.status = "warning";
-      tab.output += `\r\n[sftp failed: ${formatError(error)}]\r\n`;
+      tab.output += options.softError
+        ? `\r\n[sftp refresh failed after reconnect: ${formatError(error)}]\r\n`
+        : `\r\n[sftp failed: ${formatError(error)}]\r\n`;
     }
   }
 
