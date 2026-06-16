@@ -44,6 +44,7 @@ export type SftpPaneState = {
   activeDownloadId?: string;
   activeDownloadName?: string;
   activeDownloadProgress?: number;
+  activeDownloadRetryPayload?: SftpDownloadRetryPayload;
   activeUploadId?: string;
   activeUploadName?: string;
   activeUploadProgress?: number;

@@ -453,18 +453,19 @@ export const useLayoutStore = defineStore("layout", () => {
       loadingPath: undefined,
       selectedEntryPath: options.preserveSftpContext ? previousSftp.selectedEntryPath : undefined,
       selectedCount: options.preserveSftpContext ? previousSftp.selectedCount : 0,
-      transferSummary: "idle",
+      transferSummary: options.preserveSftpContext ? previousSftp.transferSummary : "idle",
       activeDownloadId: undefined,
       activeDownloadName: undefined,
       activeDownloadProgress: undefined,
+      activeDownloadRetryPayload: undefined,
       activeUploadId: undefined,
       activeUploadName: undefined,
       activeUploadProgress: undefined,
-      uploadQueueCompleted: undefined,
-      uploadQueuePending: undefined,
-      uploadQueueTotal: undefined,
+      uploadQueueCompleted: options.preserveSftpContext ? previousSftp.uploadQueueCompleted : undefined,
+      uploadQueuePending: options.preserveSftpContext ? previousSftp.uploadQueuePending : undefined,
+      uploadQueueTotal: options.preserveSftpContext ? previousSftp.uploadQueueTotal : undefined,
       transferProgress: undefined,
-      transferQueue: [],
+      transferQueue: options.preserveSftpContext ? previousSftp.transferQueue : [],
     };
   }
 
@@ -475,7 +476,8 @@ export const useLayoutStore = defineStore("layout", () => {
     }
 
     clearTerminalWriteQueue(tab.id);
-    resetTabConnectionState(tab, { clearOutput: false });
+    markActiveTransfersInterrupted(tab);
+    resetTabConnectionState(tab, { clearOutput: false, preserveSftpContext: true });
     tab.status = "reconnecting";
     tab.reconnectOnInput = true;
     tab.output += reconnectPrompt(reason);
@@ -1261,6 +1263,7 @@ export const useLayoutStore = defineStore("layout", () => {
         activeDownloadId: previousSftp.activeDownloadId,
         activeDownloadName: previousSftp.activeDownloadName,
         activeDownloadProgress: previousSftp.activeDownloadProgress,
+        activeDownloadRetryPayload: previousSftp.activeDownloadRetryPayload,
         activeUploadId: previousSftp.activeUploadId,
         activeUploadName: previousSftp.activeUploadName,
         activeUploadProgress: previousSftp.activeUploadProgress,
@@ -1477,6 +1480,12 @@ export const useLayoutStore = defineStore("layout", () => {
       tab.sftp.activeDownloadId = transferId;
       tab.sftp.activeDownloadName = selectedEntry.name;
       tab.sftp.activeDownloadProgress = 0;
+      tab.sftp.activeDownloadRetryPayload = {
+        kind: "directory",
+        fileName: selectedEntry.name,
+        localPath: localDirectory,
+        remotePath: selectedEntry.path,
+      };
       tab.sftp.transferProgress = 0;
 
       try {
@@ -1497,6 +1506,7 @@ export const useLayoutStore = defineStore("layout", () => {
         tab.sftp.activeDownloadId = undefined;
         tab.sftp.activeDownloadName = undefined;
         tab.sftp.activeDownloadProgress = undefined;
+        tab.sftp.activeDownloadRetryPayload = undefined;
         tab.sftp.transferProgress = undefined;
         updateSftpTransferQueue(tab);
         rememberSftpTransfer(tab, {
@@ -1539,6 +1549,12 @@ export const useLayoutStore = defineStore("layout", () => {
     tab.sftp.activeDownloadId = transferId;
     tab.sftp.activeDownloadName = selectedEntry.name;
     tab.sftp.activeDownloadProgress = 0;
+    tab.sftp.activeDownloadRetryPayload = {
+      kind: "file",
+      fileName: selectedEntry.name,
+      localPath,
+      remotePath: selectedEntry.path,
+    };
     tab.sftp.transferProgress = 0;
 
     try {
@@ -1559,6 +1575,7 @@ export const useLayoutStore = defineStore("layout", () => {
       tab.sftp.activeDownloadId = undefined;
       tab.sftp.activeDownloadName = undefined;
       tab.sftp.activeDownloadProgress = undefined;
+      tab.sftp.activeDownloadRetryPayload = undefined;
       tab.sftp.transferProgress = undefined;
       updateSftpTransferQueue(tab);
       rememberSftpTransfer(tab, {
@@ -1907,6 +1924,7 @@ export const useLayoutStore = defineStore("layout", () => {
       tab.sftp.activeDownloadId = undefined;
       tab.sftp.activeDownloadName = undefined;
       tab.sftp.activeDownloadProgress = undefined;
+      tab.sftp.activeDownloadRetryPayload = undefined;
       tab.sftp.transferProgress = undefined;
       updateSftpTransferQueue(tab);
       rememberSftpTransfer(tab, {
@@ -1927,6 +1945,7 @@ export const useLayoutStore = defineStore("layout", () => {
       tab.sftp.activeDownloadId = undefined;
       tab.sftp.activeDownloadName = undefined;
       tab.sftp.activeDownloadProgress = undefined;
+      tab.sftp.activeDownloadRetryPayload = undefined;
       tab.sftp.transferProgress = undefined;
       updateSftpTransferQueue(tab);
       rememberSftpTransfer(tab, {
@@ -1947,6 +1966,7 @@ export const useLayoutStore = defineStore("layout", () => {
     tab.sftp.activeDownloadId = undefined;
     tab.sftp.activeDownloadName = undefined;
     tab.sftp.activeDownloadProgress = undefined;
+    tab.sftp.activeDownloadRetryPayload = undefined;
     tab.sftp.transferProgress = undefined;
     updateSftpTransferQueue(tab);
     rememberSftpTransfer(tab, {
@@ -2108,6 +2128,79 @@ export const useLayoutStore = defineStore("layout", () => {
     payload: SftpDownloadRetryPayload | SftpUploadRetryPayload,
   ): payload is SftpUploadRetryPayload {
     return !isSftpDownloadRetryPayload(payload);
+  }
+
+  function markActiveTransfersInterrupted(tab: TerminalTab) {
+    const summary = "连接已中断，可重试";
+    const activeDownloadId = tab.sftp.activeDownloadId;
+
+    if (activeDownloadId) {
+      const existingDownload = tab.sftp.transferQueue.find((item) => item.id === activeDownloadId);
+      const retryPayload = tab.sftp.activeDownloadRetryPayload
+        ?? (existingDownload?.retryPayload && isSftpDownloadRetryPayload(existingDownload.retryPayload)
+          ? existingDownload.retryPayload
+          : undefined);
+      const fileName = tab.sftp.activeDownloadName ?? retryPayload?.fileName ?? "download";
+
+      rememberSftpTransfer(tab, {
+        id: activeDownloadId,
+        direction: "download",
+        name: fileName,
+        status: "error",
+        progress: tab.sftp.activeDownloadProgress ?? tab.sftp.transferProgress ?? 0,
+        summary,
+        retryable: Boolean(retryPayload),
+        retryPayload,
+      });
+    }
+
+    const queue = uploadQueues.value[tab.id];
+    const currentUpload = queue?.current;
+
+    if (tab.sftp.activeUploadId || currentUpload) {
+      const transferId = tab.sftp.activeUploadId ?? `upload-${tab.id}-${Date.now()}`;
+      const transferName = tab.sftp.activeUploadName ?? currentUpload?.fileName ?? "upload";
+      const retryPayload = currentUpload
+        ? {
+            localPath: currentUpload.localPath,
+            remotePath: currentUpload.remotePath,
+            fileName: currentUpload.fileName,
+            ensureDirectories: [...currentUpload.ensureDirectories],
+          }
+        : undefined;
+
+      rememberSftpTransfer(tab, {
+        id: transferId,
+        direction: "upload",
+        name: transferName,
+        status: "error",
+        progress: tab.sftp.activeUploadProgress ?? tab.sftp.transferProgress ?? 0,
+        summary,
+        retryable: Boolean(retryPayload),
+        retryPayload,
+      });
+
+      if (queue) {
+        queue.running = false;
+        queue.current = undefined;
+      }
+    }
+
+    if (activeDownloadId || tab.sftp.activeUploadId || currentUpload) {
+      tab.sftp.transferSummary = summary;
+      tab.sftp.activeDownloadId = undefined;
+      tab.sftp.activeDownloadName = undefined;
+      tab.sftp.activeDownloadProgress = undefined;
+      tab.sftp.activeDownloadRetryPayload = undefined;
+      tab.sftp.activeUploadId = undefined;
+      tab.sftp.activeUploadName = undefined;
+      tab.sftp.activeUploadProgress = undefined;
+      tab.sftp.transferProgress = undefined;
+      tab.sftp.uploadQueueCompleted = queue?.completed;
+      tab.sftp.uploadQueuePending = queue?.items.length;
+      tab.sftp.uploadQueueTotal = queue?.total;
+      updateSftpTransferQueue(tab);
+    }
   }
 
   async function ensureRemoteDirectories(tab: TerminalTab, directories: string[]) {
@@ -2332,6 +2425,7 @@ export const useLayoutStore = defineStore("layout", () => {
     tab.sftp.activeDownloadId = transferId;
     tab.sftp.activeDownloadName = payload.fileName;
     tab.sftp.activeDownloadProgress = 0;
+    tab.sftp.activeDownloadRetryPayload = payload;
     tab.sftp.transferProgress = 0;
     updateSftpTransferQueue(tab);
 
@@ -2362,6 +2456,7 @@ export const useLayoutStore = defineStore("layout", () => {
       tab.sftp.activeDownloadId = undefined;
       tab.sftp.activeDownloadName = undefined;
       tab.sftp.activeDownloadProgress = undefined;
+      tab.sftp.activeDownloadRetryPayload = undefined;
       tab.sftp.transferProgress = undefined;
       updateSftpTransferQueue(tab);
       rememberSftpTransfer(tab, {
