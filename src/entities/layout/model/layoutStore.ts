@@ -904,6 +904,7 @@ export const useLayoutStore = defineStore("layout", () => {
           serverId: server.id,
           tabId: tab.id,
         };
+        tab.output += "\r\n[ssh host key is not yet trusted, please confirm in the dialog]\r\n";
       } else if (hostKeyError?.kind === "mismatch") {
         pendingHostKeyTrust.value = {
           kind: "mismatch",
@@ -916,8 +917,10 @@ export const useLayoutStore = defineStore("layout", () => {
       }
       serverStore.setServerStatus(server.id, "error", { lastError: formattedError });
       tab.status = "error";
-      tab.reconnectOnInput = true;
-      tab.output += reconnectPrompt(`ssh connection failed: ${formattedError}`);
+      tab.reconnectOnInput = Boolean(!hostKeyError);
+      if (!hostKeyError) {
+        tab.output += reconnectPrompt(`ssh connection failed: ${formattedError}`);
+      }
       return;
     }
 
@@ -961,8 +964,13 @@ export const useLayoutStore = defineStore("layout", () => {
     return undefined;
   }
 
-  function cancelHostKeyTrust() {
+  async function cancelHostKeyTrust() {
+    const pending = pendingHostKeyTrust.value;
     pendingHostKeyTrust.value = undefined;
+
+    if (pending?.tabId) {
+      await closeTerminalTabById(pending.tabId);
+    }
   }
 
   function confirmHostKeyTrust() {
@@ -989,6 +997,10 @@ export const useLayoutStore = defineStore("layout", () => {
     const tab = tabs.value.find((item) => item.id === tabId);
 
     if (!tab) {
+      return;
+    }
+
+    if (pendingHostKeyTrust.value?.tabId === tabId) {
       return;
     }
 

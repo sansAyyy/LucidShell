@@ -14,7 +14,7 @@ const emit = defineEmits<{
 
 <template>
   <Teleport to="body">
-    <div v-if="open" class="host-key-layer" @click.self="emit('cancel')">
+    <div v-if="open" class="host-key-layer">
       <section class="host-key-dialog" role="dialog" aria-modal="true" aria-label="确认 SSH 主机密钥">
         <header>
           <h2>{{ kind === "mismatch" ? "SSH 主机密钥已变更" : "确认 SSH 主机密钥" }}</h2>
