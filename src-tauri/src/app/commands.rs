@@ -295,6 +295,11 @@ pub async fn disconnect_server(
     state: State<'_, AppState>,
     payload: DisconnectServerPayload,
 ) -> Result<Option<ServerSessionDto>, String> {
+    let _ = state
+        .transfer_registry
+        .cancel_session(&payload.session_id)
+        .await;
+
     let session = {
         let mut session_manager = state.session_manager.lock().await;
         session_manager.disconnect_server(&payload.session_id).await
@@ -318,6 +323,7 @@ pub async fn disconnect_server(
 
 #[tauri::command]
 pub async fn cleanup_ssh_sessions(state: State<'_, AppState>) -> Result<(), String> {
+    let _ = state.transfer_registry.cancel_all().await;
     let mut session_manager = state.session_manager.lock().await;
     session_manager.disconnect_all().await;
     Ok(())
@@ -371,6 +377,10 @@ pub async fn check_server_session_health(
     };
 
     if session.error.is_some() {
+        let _ = state
+            .transfer_registry
+            .cancel_session(&payload.server_session_id)
+            .await;
         emit_connection_status(&app, &session)?;
     }
 
@@ -474,7 +484,10 @@ pub async fn download_sftp_file(
 ) -> Result<String, String> {
     let cancellation_token = state
         .transfer_registry
-        .register_download(payload.transfer_id.clone())
+        .register_download(
+            payload.transfer_id.clone(),
+            payload.server_session_id.clone(),
+        )
         .await;
     let transfer_guard = state
         .transfer_registry
@@ -571,7 +584,10 @@ pub async fn download_sftp_directory(
 ) -> Result<String, String> {
     let cancellation_token = state
         .transfer_registry
-        .register_download(payload.transfer_id.clone())
+        .register_download(
+            payload.transfer_id.clone(),
+            payload.server_session_id.clone(),
+        )
         .await;
     let transfer_guard = state
         .transfer_registry
@@ -701,7 +717,10 @@ pub async fn upload_sftp_file(
 ) -> Result<String, String> {
     let cancellation_token = state
         .transfer_registry
-        .register_upload(payload.transfer_id.clone())
+        .register_upload(
+            payload.transfer_id.clone(),
+            payload.server_session_id.clone(),
+        )
         .await;
     let transfer_guard = state
         .transfer_registry
