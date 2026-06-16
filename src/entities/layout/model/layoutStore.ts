@@ -2442,6 +2442,8 @@ export const useLayoutStore = defineStore("layout", () => {
       return;
     }
 
+    removeRetriedSftpTransferItem(tab, itemId);
+
     if (isSftpDownloadRetryPayload(retryPayload)) {
       void retrySftpDownload(tab, retryPayload);
       return;
@@ -2463,6 +2465,12 @@ export const useLayoutStore = defineStore("layout", () => {
     if (!queue.running) {
       void runNextSftpUpload(tab.id);
     }
+  }
+
+  function removeRetriedSftpTransferItem(tab: TerminalTab, itemId: string) {
+    tab.sftp.transferQueue = tab.sftp.transferQueue.filter((item) =>
+      item.status === "running" || item.id !== itemId,
+    );
   }
 
   function resumeSftpUploadQueue(tabId: string) {
