@@ -340,23 +340,53 @@ impl SessionManager {
                 .unwrap_or_else(|| "server session is not connected".to_string()));
         }
 
-        match self
-            .ssh_pool
-            .is_session_closed(server_session_id)
-            .map_err(|error| error.to_string())
+        match self.ssh_pool.is_session_closed(server_session_id) {
+            Ok(false) => {}
+            Ok(true) => {
+                return self
+                    .mark_server_session_error(
+                        server_session_id,
+                        "connection health check failed: SSH session is closed".to_string(),
+                    )
+                    .await;
+            }
+            Err(error) => {
+                return self
+                    .mark_server_session_error(server_session_id, error.to_string())
+                    .await;
+            }
+        }
+
+        match tokio::time::timeout(
+            HEALTH_CHECK_TIMEOUT,
+            self.ssh_pool
+                .exec_command(server_session_id, HEALTH_CHECK_COMMAND),
+        )
+        .await
         {
-            Ok(false) => self
+            Ok(Ok(output)) if output.exit_status.unwrap_or_default() == 0 => self
                 .sessions
                 .get(server_session_id)
                 .cloned()
                 .ok_or_else(|| "server session not found".to_string()),
-            Ok(true) => self
-                .mark_server_session_error(
+            Ok(Ok(output)) => {
+                let message = health_check_command_error(output.stderr.trim(), output.exit_status);
+                self.mark_server_session_error(server_session_id, message).await
+            }
+            Ok(Err(error)) => {
+                self.mark_server_session_error(
                     server_session_id,
-                    "connection health check failed: SSH session is closed".to_string(),
+                    format!("connection health check failed: {error}"),
                 )
-                .await,
-            Err(error) => self.mark_server_session_error(server_session_id, error).await,
+                .await
+            }
+            Err(_) => {
+                self.mark_server_session_error(
+                    server_session_id,
+                    "connection health check timed out".to_string(),
+                )
+                .await
+            }
         }
     }
 
@@ -389,6 +419,8 @@ impl SessionManager {
 
 const MONITOR_COMMAND: &str = r#"sh -lc 'read cpu user nice system idle iowait irq softirq steal guest guest_nice < /proc/stat; total=$((user+nice+system+idle+iowait+irq+softirq+steal)); busy=$((total-idle-iowait)); cpu_pct=0; if [ "$total" -gt 0 ]; then cpu_pct=$((busy*100/total)); fi; mem_pct=$(free | awk "/Mem:/ { if (\$2 > 0) printf \"%d\", (\$3 * 100 / \$2); else printf \"0\" }"); disk_pct=$(df -P / | awk "NR==2 { gsub(/%/, \"\", \$5); print \$5 }"); load_avg=$(cut -d" " -f1 /proc/loadavg 2>/dev/null || echo "-"); uptime_text=$(uptime -p 2>/dev/null | sed "s/^up //" || echo "-"); printf "%s|%s|%s|%s|%s\n" "$cpu_pct" "$mem_pct" "$disk_pct" "$load_avg" "$uptime_text"'"#;
 const READ_LOGIN_SHELL_COMMAND: &str = r#"printf "%s\n" "$SHELL""#;
+const HEALTH_CHECK_COMMAND: &str = r#"printf "lucidshell-health-ok\n""#;
+const HEALTH_CHECK_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub fn session_to_dto(session: &ServerSession) -> ServerSessionDto {
     ServerSessionDto {
@@ -486,4 +518,16 @@ fn parse_percent(value: Option<&str>) -> Option<u8> {
     value
         .and_then(|value| value.trim().parse::<u8>().ok())
         .map(|value| value.min(100))
+}
+
+fn health_check_command_error(stderr: &str, exit_status: Option<u32>) -> String {
+    let status = exit_status
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    if stderr.is_empty() {
+        format!("connection health check failed with exit status {status}")
+    } else {
+        format!("connection health check failed with exit status {status}: {stderr}")
+    }
 }
