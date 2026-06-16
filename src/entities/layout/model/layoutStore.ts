@@ -64,6 +64,8 @@ type TerminalWriteQueueState = {
   running: boolean;
 };
 
+type SftpUploadConflictChoice = "overwrite" | "skip" | "cancel";
+
 const emptyMonitor: MonitorState = {};
 const TERMINAL_WRITE_CHUNK_SIZE = 4096;
 const TERMINAL_PASTE_CONFIRM_THRESHOLD = 20_000;
@@ -1536,17 +1538,31 @@ export const useLayoutStore = defineStore("layout", () => {
         remoteDirectory: tab.sftp.currentPath || ".",
       });
       const pendingDirectories = [...preparedQueue.directories];
-      const items = preparedQueue.files.map((file, index) => ({
+      const preparedItems = preparedQueue.files.map((file) => ({
         id: createUploadQueueItemId(tab.id),
         fileName: file.fileName,
         localPath: file.localPath,
         remotePath: file.remotePath,
-        ensureDirectories: index === 0 ? pendingDirectories : [],
+        ensureDirectories: [] as string[],
+      }));
+      const conflictChoice = await resolveSftpUploadConflicts(tab, preparedItems, pendingDirectories);
+
+      if (conflictChoice.action === "cancel") {
+        tab.sftp.transferSummary = "upload cancelled";
+        updateSftpTransferQueue(tab);
+        return;
+      }
+
+      const items = conflictChoice.items.map((item, index) => ({
+        ...item,
+        ensureDirectories: index === 0 ? conflictChoice.directories : [],
       }));
 
       if (!items.length) {
-        await ensureRemoteDirectories(tab, pendingDirectories);
-        tab.sftp.transferSummary = pendingDirectories.length ? "folder uploaded" : "invalid file";
+        if (conflictChoice.directories.length && conflictChoice.action !== "skip") {
+          await ensureRemoteDirectories(tab, conflictChoice.directories);
+        }
+        tab.sftp.transferSummary = conflictChoice.action === "skip" ? "upload skipped" : "invalid file";
         updateSftpTransferQueue(tab);
         await refreshSftpForTab(tab.id, tab.sftp.currentPath);
         return;
@@ -1579,6 +1595,76 @@ export const useLayoutStore = defineStore("layout", () => {
       tab.status = "warning";
       tab.output += `\r\n[sftp upload prepare failed: ${formatError(error)}]\r\n`;
     }
+  }
+
+  async function resolveSftpUploadConflicts(
+    tab: TerminalTab,
+    items: SftpUploadQueueItem[],
+    directories: string[],
+  ): Promise<{
+    action: SftpUploadConflictChoice;
+    directories: string[];
+    items: SftpUploadQueueItem[];
+  }> {
+    const existingTopLevelNames = new Set(tab.sftp.entries.map((entry) => entry.name));
+    const topLevelUploadNames = new Set<string>();
+
+    for (const item of items) {
+      const relativePath = relativeRemotePath(tab.sftp.currentPath, item.remotePath);
+      const topLevelName = relativePath.split("/")[0];
+
+      if (topLevelName) {
+        topLevelUploadNames.add(topLevelName);
+      }
+    }
+
+    for (const directory of directories) {
+      const relativePath = relativeRemotePath(tab.sftp.currentPath, directory);
+      const topLevelName = relativePath.split("/")[0];
+
+      if (topLevelName) {
+        topLevelUploadNames.add(topLevelName);
+      }
+    }
+
+    const conflicts = Array.from(topLevelUploadNames).filter((name) => existingTopLevelNames.has(name));
+
+    if (!conflicts.length) {
+      return { action: "overwrite", directories, items };
+    }
+
+    const choice = await useNotificationStore().choose({
+      title: "上传冲突",
+      message: conflicts.length === 1
+        ? `远端已存在 "${conflicts[0]}"。请选择如何处理。`
+        : `远端已存在 ${conflicts.length} 个同名项目。请选择如何处理。`,
+      choices: [
+        { label: "覆盖", tone: "danger", value: "overwrite" },
+        { label: "跳过", value: "skip" },
+        { label: "取消", value: "cancel" },
+      ],
+    }) as SftpUploadConflictChoice | undefined;
+
+    if (!choice || choice === "cancel") {
+      return { action: "cancel", directories: [], items: [] };
+    }
+
+    if (choice === "overwrite") {
+      return { action: "overwrite", directories, items };
+    }
+
+    const conflictSet = new Set(conflicts);
+    return {
+      action: "skip",
+      directories: directories.filter((directory) => {
+        const topLevelName = relativeRemotePath(tab.sftp.currentPath, directory).split("/")[0];
+        return !conflictSet.has(topLevelName);
+      }),
+      items: items.filter((item) => {
+        const topLevelName = relativeRemotePath(tab.sftp.currentPath, item.remotePath).split("/")[0];
+        return !conflictSet.has(topLevelName);
+      }),
+    };
   }
 
   async function runNextSftpUpload(tabId: string) {
@@ -1935,6 +2021,20 @@ export const useLayoutStore = defineStore("layout", () => {
         }
       }
     }
+  }
+
+  function relativeRemotePath(baseDirectory: string, remotePath: string) {
+    const normalizedBase = (baseDirectory || ".").replace(/\/+$/, "");
+    const normalizedRemote = remotePath.replace(/\/+$/, "");
+
+    if (!normalizedBase || normalizedBase === "." || normalizedBase === "/") {
+      return normalizedRemote.replace(/^\/+/, "");
+    }
+
+    const prefix = `${normalizedBase}/`;
+    return normalizedRemote.startsWith(prefix)
+      ? normalizedRemote.slice(prefix.length)
+      : remoteBasename(normalizedRemote);
   }
 
   function removeUploadQueue(tabId: string) {

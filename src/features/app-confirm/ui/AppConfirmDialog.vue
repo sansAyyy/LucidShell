@@ -26,6 +26,31 @@ const notification = useNotificationStore();
         </footer>
       </section>
     </div>
+    <div
+      v-if="notification.activeChoice"
+      class="confirm-layer"
+    >
+      <section class="confirm-dialog" role="dialog" aria-modal="true">
+        <header>
+          <h2>{{ notification.activeChoice.title }}</h2>
+        </header>
+        <p>{{ notification.activeChoice.message }}</p>
+        <footer>
+          <button
+            v-for="choice in notification.activeChoice.choices"
+            :key="choice.value"
+            :class="{
+              'confirm-dialog__primary': choice.tone === 'primary',
+              'confirm-dialog__danger': choice.tone === 'danger'
+            }"
+            type="button"
+            @click="notification.resolveChoice(choice.value)"
+          >
+            {{ choice.label }}
+          </button>
+        </footer>
+      </section>
+    </div>
   </Teleport>
 </template>
 
@@ -94,5 +119,14 @@ const notification = useNotificationStore();
 
 .confirm-dialog__primary:hover {
   background: var(--accent-strong) !important;
+}
+
+.confirm-dialog__danger {
+  color: #ffffff !important;
+  background: var(--danger) !important;
+}
+
+.confirm-dialog__danger:hover {
+  background: var(--danger-hover) !important;
 }
 </style>
